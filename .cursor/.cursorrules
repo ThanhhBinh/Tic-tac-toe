@@ -1,0 +1,107 @@
+# ==========================================================================
+#  .cursorrules — Quy tắc làm việc cho dự án "AI Cờ Caro (Gomoku)"
+#  Minimax + Alpha-Beta Pruning + Deep Q-Network (DQN) + Pygame UI
+# ==========================================================================
+#  File này định nghĩa CÁCH AI agent (Cursor) phải tư duy và viết code trong
+#  toàn bộ dự án. Mọi đoạn code sinh ra PHẢI tuân thủ nghiêm ngặt các quy tắc
+#  dưới đây. Nếu một yêu cầu mâu thuẫn với quy tắc, hãy nêu rõ và đề xuất cách
+#  xử lý trước khi viết code.
+# ==========================================================================
+
+## 1. NGÔN NGỮ & GIAO TIẾP
+- Toàn bộ giải thích, bình luận (comment), docstring và thông điệp log
+  hướng tới người dùng cuối VIẾT BẰNG TIẾNG VIỆT, rõ ràng, có dấu.
+- Tên biến, hàm, class, module dùng TIẾNG ANH theo chuẩn PEP 8
+  (không dùng tiếng Việt không dấu cho định danh).
+- Trả lời người dùng bằng tiếng Việt, súc tích, đi thẳng vào vấn đề.
+
+## 2. PHONG CÁCH CODE PYTHON (BẮT BUỘC)
+- Tuân thủ PEP 8: thụt lề 4 dấu cách, độ dài dòng tối đa 100 ký tự.
+- Quy ước đặt tên:
+    + module / package : snake_case  (vd: caro_env.py)
+    + class            : PascalCase  (vd: MinimaxAgent)
+    + hàm / biến       : snake_case  (vd: evaluate_board)
+    + hằng số          : UPPER_SNAKE (vd: BOARD_SIZE, WIN_LENGTH)
+- Import sắp xếp theo 3 nhóm, cách nhau 1 dòng trống:
+    1) thư viện chuẩn  2) thư viện bên thứ ba  3) module nội bộ dự án.
+- KHÔNG dùng `import *`. KHÔNG để biến/import thừa không dùng đến.
+
+## 3. TYPE HINTING (BẮT BUỘC 100%)
+- MỌI hàm/method phải có type hint đầy đủ cho tham số và giá trị trả về.
+- Dùng `numpy.typing.NDArray` cho mảng NumPy, `Optional`, `list`, `tuple`,
+  `dict` từ cú pháp hiện đại (Python >= 3.10): `list[int]`, `int | None`.
+- Định nghĩa các kiểu dùng lại bằng type alias khi hợp lý
+  (vd: `Move = tuple[int, int]`, `Board = NDArray[np.int8]`).
+
+## 4. DOCSTRINGS (BẮT BUỘC)
+- Mọi module, class, hàm public phải có docstring kiểu Google style.
+- Cấu trúc docstring hàm:
+    """Mô tả ngắn 1 dòng.
+
+    Mô tả chi tiết (nếu cần).
+
+    Args:
+        ten_tham_so: Ý nghĩa và đơn vị/giới hạn.
+
+    Returns:
+        Mô tả giá trị trả về.
+
+    Raises:
+        LoaiLoi: Khi nào xảy ra.
+    """
+
+## 5. COMMENT
+- Comment giải thích "TẠI SAO" (lý do, ràng buộc, đánh đổi), KHÔNG giải thích
+  "CÁI GÌ" đã quá hiển nhiên từ code.
+- Với thuật toán phức tạp (Minimax, Alpha-Beta, heuristic, DQN), thêm comment
+  tiếng Việt mô tả ý tưởng từng khối logic quan trọng.
+- KHÔNG để lại code chết, code bị comment, hoặc `print` debug trong bản giao.
+
+## 6. KIẾN TRÚC & TÁCH LỚP (RẤT QUAN TRỌNG)
+- TÁCH BIỆT TUYỆT ĐỐI logic game (backend) và giao diện (frontend):
+    + `core/`  : logic môi trường game (CaroEnv), KHÔNG import pygame.
+    + `ai/`    : thuật toán (Minimax, DQN, Hybrid), KHÔNG import pygame.
+    + `ui/`    : chỉ ĐỌC trạng thái từ core/ai để VẼ, không chứa luật game.
+- core/ và ai/ phải chạy được độc lập, không phụ thuộc UI (để train & test).
+- Tuân thủ Dependency Rule: ui -> ai -> core (chiều phụ thuộc 1 chiều).
+- Ưu tiên hàm thuần (pure function) và bất biến khi có thể; nêu rõ side-effect.
+
+## 7. HIỆU NĂNG
+- Bàn cờ biểu diễn bằng `numpy.ndarray` dtype `np.int8` (0=trống,1=X,2=O).
+- Kiểm tra thắng/thua tối ưu: chỉ quét quanh nước vừa đánh (4 hướng), KHÔNG
+  quét lại toàn bộ bàn cờ mỗi lượt.
+- Minimax phải có Alpha-Beta pruning và move ordering; giới hạn không gian
+  tìm kiếm quanh các quân đã có (candidate moves).
+- Code PyTorch phải tách thiết bị (cpu/cuda) rõ ràng và hỗ trợ batch.
+
+## 8. QUY TRÌNH TỰ KIỂM TRA (SELF-CHECK / AGENT WORKFLOW)
+Sau khi viết hoặc sửa một module quan trọng, agent PHẢI tự kiểm tra bằng các
+"skill" định nghĩa trong `agent_tools.py`:
+    1) lint_code        -> kiểm tra style & type (ruff + mypy nếu có).
+    2) run_unit_tests   -> chạy pytest cho phần vừa thay đổi.
+    3) evaluate_model   -> đánh giá agent AI (đấu thử) khi đụng tới ai/.
+- Nếu phát hiện lỗi lint/test, PHẢI sửa trước khi tiếp tục bước kế.
+- Không tuyên bố "hoàn thành" một bước khi test còn đỏ.
+
+## 9. KIỂM THỬ (TESTING)
+- Dùng `pytest`. Test đặt trong `tests/`, tên file `test_*.py`.
+- Mỗi module logic cốt lõi (CaroEnv, các agent) phải có unit test cho:
+    + đặt quân hợp lệ/không hợp lệ, + phát hiện thắng theo 4 hướng,
+    + hòa cờ, + tính hợp lệ của nước đi do AI sinh ra.
+
+## 10. QUẢN LÝ PHỤ THUỘC & CẤU HÌNH
+- Mọi dependency khai báo trong `requirements.txt` kèm phiên bản tối thiểu.
+- Tham số toàn cục (BOARD_SIZE, WIN_LENGTH, màu sắc, FPS, đường dẫn model...)
+  tập trung trong `config.py`, KHÔNG rải "magic number" khắp code.
+- LƯU Ý môi trường: dự án nhắm Python >= 3.10. Nếu PyTorch chưa hỗ trợ phiên
+  bản Python hiện tại, nêu rõ và đề xuất giải pháp (vd: tạo venv 3.11/3.12).
+
+## 11. QUY TRÌNH TƯ DUY CỦA AGENT (THINKING PROCESS)
+Trước khi viết code cho mỗi bước, agent nên:
+    1) Tóm tắt mục tiêu & input/output mong đợi.
+    2) Nêu cấu trúc dữ liệu và chữ ký hàm/class chính.
+    3) Chỉ rõ file nào được tạo/sửa và lý do.
+    4) Viết code + docstring + type hint.
+    5) Chạy self-check (mục 8) và báo cáo kết quả.
+- Khi có nhiều phương án hợp lý, chọn phương án đơn giản & dễ test nhất, và
+  giải thích ngắn gọn lý do lựa chọn.

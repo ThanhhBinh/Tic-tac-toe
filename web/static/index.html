@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Cờ Caro — Minimax + DQN</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/css/style.css" />
+  <script>
+    (function () {
+      var t = localStorage.getItem("caro-theme") || "dark";
+      document.documentElement.setAttribute("data-theme", t);
+    })();
+  </script>
+</head>
+<body>
+  <div class="bg-mesh" aria-hidden="true"></div>
+
+  <button id="theme-toggle-setup" class="theme-toggle" type="button" aria-label="Đổi giao diện sáng/tối" title="Sáng / Tối">
+    <span class="theme-icon theme-icon-dark">☀️</span>
+    <span class="theme-icon theme-icon-light">🌙</span>
+  </button>
+
+  <!-- Màn hình cài đặt -->
+  <div id="setup-screen" class="screen active">
+    <div class="setup-card glass">
+      <div class="brand">
+        <span class="brand-icon">⚫</span>
+        <h1>AI Cờ Caro</h1>
+        <p class="subtitle">Minimax · Alpha-Beta · DQN · Hybrid</p>
+      </div>
+
+      <form id="setup-form" class="setup-form">
+        <label class="field">
+          <span>Chế độ chơi</span>
+          <select id="mode" name="mode"></select>
+        </label>
+        <label class="field">
+          <span>Loại AI</span>
+          <select id="ai_type" name="ai_type"></select>
+        </label>
+        <label class="field">
+          <span>Độ khó</span>
+          <select id="difficulty" name="difficulty"></select>
+        </label>
+        <label class="field">
+          <span>Kích thước bàn</span>
+          <select id="board_size" name="board_size"></select>
+        </label>
+
+        <fieldset class="rules-fieldset">
+          <legend>Luật &amp; cảnh báo</legend>
+          <label class="checkbox-field">
+            <input type="checkbox" id="double_end_block_rule" name="double_end_block_rule" checked />
+            <span>Luật chặn 2 đầu (tam/tứ mở hai đầu)</span>
+          </label>
+          <label class="checkbox-field">
+            <input type="checkbox" id="threat_warnings" name="threat_warnings" checked />
+            <span>Cảnh báo sắp thắng trên bàn cờ</span>
+          </label>
+          <label class="checkbox-field">
+            <input type="checkbox" id="ai_aggressive" name="ai_aggressive" checked />
+            <span>AI tấn công chủ động (ít phòng thủ máy móc)</span>
+          </label>
+          <label class="checkbox-field" id="ai-first-field">
+            <input type="checkbox" id="ai_first" name="ai_first" />
+            <span>AI đi trước (Người vs AI)</span>
+          </label>
+        </fieldset>
+
+        <button type="submit" class="btn btn-primary btn-lg">
+          Bắt đầu chơi
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Màn hình chơi -->
+  <div id="game-screen" class="screen">
+    <header class="topbar">
+      <button id="btn-back" class="btn btn-ghost btn-icon" type="button" title="Về menu">←</button>
+      <span class="topbar-brand">AI Cờ Caro</span>
+      <div class="topbar-actions">
+        <button id="btn-new" class="btn btn-ghost btn-sm" type="button">Chơi lại</button>
+        <button id="theme-toggle-game" class="theme-toggle theme-toggle-inline" type="button" aria-label="Đổi giao diện sáng/tối" title="Sáng / Tối">
+          <span class="theme-icon theme-icon-dark">☀️</span>
+          <span class="theme-icon theme-icon-light">🌙</span>
+        </button>
+      </div>
+    </header>
+
+    <div class="game-shell">
+      <section class="board-stage">
+        <div id="board-wrap" class="board-frame">
+          <div id="board" class="board" role="grid" aria-label="Bàn cờ Caro"></div>
+        </div>
+      </section>
+
+      <aside class="panel">
+        <div class="panel-header">
+          <span class="panel-mode" id="game-mode-label">Player vs AI</span>
+          <span id="game-status" class="status-pill">Đang chơi</span>
+        </div>
+
+        <div class="players-row">
+          <div class="player-chip" id="card-x">
+            <div class="stone-preview stone-x">X</div>
+            <div class="player-chip-text">
+              <strong>X</strong>
+              <small id="label-x">Bạn</small>
+            </div>
+          </div>
+          <div class="player-chip" id="card-o">
+            <div class="stone-preview stone-o">O</div>
+            <div class="player-chip-text">
+              <strong>O</strong>
+              <small id="label-o">AI</small>
+            </div>
+          </div>
+        </div>
+
+        <div class="metrics">
+          <div class="metric">
+            <span class="metric-label">Nước đi</span>
+            <span class="metric-value" id="move-count">0</span>
+          </div>
+          <div class="metric">
+            <span class="metric-label">Win prob.</span>
+            <span class="metric-value" id="win-prob">—</span>
+          </div>
+        </div>
+
+        <div class="progress-block">
+          <div class="progress-header">
+            <span>Xác suất thắng</span>
+            <span id="win-prob-bar-text">—</span>
+          </div>
+          <div class="progress-track">
+            <div id="win-prob-bar" class="progress-fill"></div>
+          </div>
+        </div>
+
+        <div id="ai-think-block" class="progress-block ai-think-block hidden" aria-live="polite">
+          <div class="progress-header">
+            <span id="ai-think-label">AI suy nghĩ</span>
+            <span id="ai-think-time">0.0s</span>
+          </div>
+          <div class="progress-track progress-track-indeterminate">
+            <div id="ai-think-bar" class="progress-fill progress-fill-indeterminate"></div>
+          </div>
+        </div>
+
+        <div class="ai-tags">
+          <span class="tag" id="ai-type-label">Hybrid</span>
+          <span class="tag tag-muted" id="difficulty-label">MEDIUM</span>
+        </div>
+
+        <div class="panel-spacer"></div>
+
+        <div id="undo-row" class="panel-actions hidden">
+          <button id="btn-undo" class="btn btn-secondary" type="button" disabled>↩ Quay lại</button>
+          <button id="btn-redo" class="btn btn-secondary" type="button" disabled>↪ Làm lại</button>
+        </div>
+
+        <div id="threat-banner" class="threat-banner hidden" role="status"></div>
+
+        <p class="hint" id="keyboard-hint">Click ô trống · U: Quay lại · T: Sáng/Tối</p>
+      </aside>
+    </div>
+  </div>
+
+  <!-- Pop-up kết thúc -->
+  <div id="end-modal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-backdrop" id="modal-backdrop"></div>
+    <div class="modal-card glass">
+      <div id="end-icon" class="end-icon">🏆</div>
+      <h2 id="end-title">X THẮNG!</h2>
+      <p id="end-subtitle">Chiến thắng sau 24 nước</p>
+      <div class="modal-actions">
+        <button id="btn-view-board" class="btn btn-primary" type="button">Xem bàn cờ</button>
+        <button id="btn-play-again" class="btn btn-secondary" type="button">Chơi lại</button>
+        <button id="btn-to-menu" class="btn btn-ghost" type="button">Về Menu</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Banner nhỏ khi đã ẩn modal -->
+  <div id="end-banner" class="end-banner glass hidden">
+    <span id="banner-text">X thắng</span>
+    <button id="btn-show-modal" class="btn btn-sm btn-primary" type="button">Kết quả</button>
+  </div>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>

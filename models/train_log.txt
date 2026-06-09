@@ -1,0 +1,74 @@
+============================================================
+  AUTO TRAIN DQN
+  Bàn: 15x15 | Episodes: 800
+  Mode: minimax (depth=2)
+============================================================
+============================================================
+  HUẤN LUYỆN DQN — AI CỜ CARO
+============================================================
+  Bàn cờ     : 15x15
+  Chế độ     : vs Minimax (depth=2)
+  Episodes   : 800
+  Thiết bị   : tự phát hiện
+  Checkpoint : /Users/hugo/Documents/school/AI/DoAn/models/dqn_15.pth
+============================================================
+[Ep    50] ε=0.589 | loss=0.1393 | buf=1059 | X thắng=54.0% | R_X=+1.44
+[Ep   100] ε=0.330 | loss=1.1659 | buf=2219 | X thắng=53.0% | R_X=+2.47
+[Ep   150] ε=0.192 | loss=3.5524 | buf=3297 | X thắng=51.3% | R_X=+0.54
+[Ep   200] ε=0.106 | loss=9.5175 | buf=4491 | X thắng=50.5% | R_X=+1.44
+  → Đã lưu checkpoint: /Users/hugo/Documents/school/AI/DoAn/models/dqn_15.pth
+  → Eval vs Minimax (10 ván): DQN thắng 50.0%
+[Ep   250] ε=0.060 | loss=17.1188 | buf=5625 | X thắng=50.8% | R_X=+1.88
+oss=0.0487 | buf=555 | X thắng=44.0% | R_X=+0.99
+[Ep    50] ε=0.589 | loss=0.1393 | buf=1059 | X thắng=54.0% | R_X=+1.44
+  → Đã lưu checkpoint: /Users/hugo/Documents/school/AI/DoAn/models/dqn_15.pth
+[Ep    75] ε=0.438 | loss=0.4562 | buf=1650 | X thắng=50.7% | R_X=+2.26
+[Ep   100] ε=0.330 | loss=1.1659 | buf=2219 | X thắng=53.0% | R_X=+2.47
+  → Đã lưu checkpoint: /Users/hugo/Documents/school/AI/DoAn/models/dqn_15.pth
+[Ep   125] ε=0.248 | loss=2.1442 | buf=2784 | X thắng=51.2% | R_X=+0.55
+============================================================
+  HUẤN LUYỆN DQN — AI CỜ CARO
+============================================================
+  Bàn cờ     : 15x15
+  Chế độ     : vs Minimax (depth=3)
+  Episodes   : 500
+  Thiết bị   : tự phát hiện
+  Checkpoint : /Users/hugo/Documents/school/AI/DoAn/models/dqn_15.pth
+============================================================
+Tiếp tục từ checkpoint: models/dqn_15.pth
+[Ep   150] ε=0.192 | loss=3.5524 | buf=3297 | X thắng=51.3% | R_X=+0.54
+  → Đã lưu checkpoint: /Users/hugo/Documents/school/AI/DoAn/models/dqn_15.pth
+============================================================
+  HUẤN LUYỆN DQN — AI CỜ CARO
+============================================================
+  Bàn cờ     : 15x15
+  Chế độ     : vs Minimax (depth=3)
+  Episodes   : 120
+  Thiết bị   : tự phát hiện
+  Checkpoint : /Users/hugo/Documents/school/AI/DoAn/models/dqn_15.pth
+============================================================
+Tiếp tục từ checkpoint: models/dqn_15.pth
+[Ep   175] ε=0.142 | loss=5.4448 | buf=3896 | X thắng=50.3% | R_X=+0.77
+[Ep    20] ε=0.813 | loss=13.1134 | buf=414 | X thắng=40.0% | R_X=+0.19
+[Ep   200] ε=0.106 | loss=9.5175 | buf=4491 | X thắng=50.5% | R_X=+1.44
+  → Đã lưu checkpoint: /Users/hugo/Documents/school/AI/DoAn/models/dqn_15.pth
+============================================================
+  HOÀN TẤT HUẤN LUYỆN
+  Thời gian  : 2154.3s
+  Episodes   : 200
+  Tổng bước  : 4491
+  X thắng    : 50.5%
+  Model      : /Users/hugo/Documents/school/AI/DoAn/models/dqn_15.pth
+============================================================
+============================================================
+  HUẤN LUYỆN DQN — AI CỜ CARO
+============================================================
+  Bàn cờ     : 15x15
+  Chế độ     : vs Minimax (depth=3)
+  Episodes   : 300
+  Thiết bị   : tự phát hiện
+  Checkpoint : /Users/hugo/Documents/school/AI/DoAn/models/dqn_15.pth
+============================================================
+Tiếp tục từ checkpoint: models/dqn_15.pth
+[Ep    50] ε=0.588 | loss=3.0180 | buf=1062 | X thắng=52.0% | R_X=+1.55
+[Ep   100] ε=0.332 | loss=8.0554 | buf=2203 | X thắng=59.0% | R_X=+2.47

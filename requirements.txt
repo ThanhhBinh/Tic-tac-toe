@@ -1,0 +1,25 @@
+# ==========================================================================
+#  Phụ thuộc dự án AI Cờ Caro (Gomoku) — Minimax + DQN + Pygame
+#  Nhắm Python 3.12 (chạy trong virtualenv .venv).
+# ==========================================================================
+
+# --- Lõi tính toán & AI ---
+numpy>=1.26
+torch>=2.2            # Deep Q-Network (PyTorch)
+
+# --- Giao diện đồ họa ---
+pygame>=2.5
+pygame-menu>=4.4     # Hệ thống menu (Main Menu, Settings...)
+
+# --- Giao diện web (Chrome) ---
+fastapi>=0.115
+uvicorn[standard]>=0.32
+pydantic>=2.0
+
+# --- Công cụ tự kiểm tra (agent self-check) ---
+pytest>=8.0          # Unit test
+ruff>=0.5            # Lint + format theo PEP 8
+mypy>=1.10           # Kiểm tra type hint tĩnh
+
+# --- (Tùy chọn) Tích hợp toolset agent-skills ---
+# agent-skills>=0.1.3

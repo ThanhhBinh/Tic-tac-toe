@@ -1,0 +1,15 @@
+# Môi trường ảo & cache
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Model đã train (file lớn)
+models/*.pth
+models/*.pt
+
+# Ảnh/tệp tạm
+_*.png
+.DS_Store
