@@ -33,12 +33,19 @@ class CaroEnv:
         winning_line: Danh sách ô tạo thành đường thắng (để UI highlight).
     """
 
-    def __init__(self, size: int = 15, win_length: int = WIN_LENGTH) -> None:
+    def __init__(
+        self,
+        size: int = 15,
+        win_length: int = WIN_LENGTH,
+        double_end_block_rule: bool = False,
+    ) -> None:
         """Khởi tạo môi trường với kích thước bàn cờ cho trước.
 
         Args:
             size: Cạnh bàn cờ (vd: 10 hoặc 15).
             win_length: Số quân liên tiếp để thắng (mặc định 5).
+            double_end_block_rule: Nếu True, đúng 5 quân liên tiếp bị chặn
+                hai đầu bởi đối phương (hoặc biên bàn) không được tính thắng.
 
         Raises:
             ValueError: Nếu size nhỏ hơn win_length.
@@ -49,6 +56,7 @@ class CaroEnv:
             )
         self.size: int = size
         self.win_length: int = win_length
+        self.double_end_block_rule: bool = double_end_block_rule
         self.board: Board = np.zeros((size, size), dtype=np.int8)
         self.current_player: Player = Player.X
         self.last_move: Move | None = None
@@ -237,11 +245,21 @@ class CaroEnv:
         self.winning_line = list(record["winning_line"])  # type: ignore[arg-type]
         self._move_count = int(record["move_count"])  # type: ignore[arg-type]
 
+    def _is_cell_blocked_for_player(self, row: int, col: int, player: Player) -> bool:
+        """True nếu ô ngoài biên hoặc bị quân đối phương chiếm (không mở)."""
+        if not self.in_bounds(row, col):
+            return True
+        return self.board[row, col] == player.opponent
+
     def _check_win_from(self, row: int, col: int, player: Player) -> bool:
         """Kiểm tra nước vừa đặt tại (row, col) có tạo thành đường thắng không.
 
         Với mỗi hướng trong 4 hướng, đếm số quân liên tiếp cùng màu về cả hai
         phía. Nếu tổng >= win_length thì thắng và lưu lại ``winning_line``.
+
+        Khi bật ``double_end_block_rule``: đúng ``win_length`` quân liên tiếp
+        chỉ thắng nếu ít nhất một đầu còn mở (ô trống). Hai đầu đều bị đối
+        phương hoặc biên bàn chặn thì không tính thắng.
 
         Args:
             row: Hàng của quân vừa đặt.
@@ -249,7 +267,7 @@ class CaroEnv:
             player: Người chơi vừa đặt quân.
 
         Returns:
-            True nếu tạo thành đường >= win_length quân liên tiếp.
+            True nếu tạo thành đường thắng hợp lệ.
         """
         for dr, dc in DIRECTIONS:
             line: list[Move] = [(row, col)]
@@ -268,10 +286,29 @@ class CaroEnv:
                 r -= dr
                 c -= dc
 
-            if len(line) >= self.win_length:
-                # Cắt đúng win_length ô liên tiếp chứa nước vừa đánh để highlight.
-                self.winning_line = line[: self.win_length] if len(line) > self.win_length else line
-                return True
+            if len(line) < self.win_length:
+                continue
+
+            if (
+                self.double_end_block_rule
+                and len(line) == self.win_length
+            ):
+                first_r, first_c = line[0]
+                last_r, last_c = line[-1]
+                before_blocked = self._is_cell_blocked_for_player(
+                    first_r - dr, first_c - dc, player
+                )
+                after_blocked = self._is_cell_blocked_for_player(
+                    last_r + dr, last_c + dc, player
+                )
+                if before_blocked and after_blocked:
+                    continue
+
+            # Cắt đúng win_length ô liên tiếp chứa nước vừa đánh để highlight.
+            self.winning_line = (
+                line[: self.win_length] if len(line) > self.win_length else line
+            )
+            return True
         return False
 
     # ----------------------------------------------------------------------
@@ -283,7 +320,11 @@ class CaroEnv:
         Returns:
             Một CaroEnv mới độc lập với trạng thái giống hệt hiện tại.
         """
-        cloned = CaroEnv(self.size, self.win_length)
+        cloned = CaroEnv(
+            self.size,
+            self.win_length,
+            double_end_block_rule=self.double_end_block_rule,
+        )
         cloned.board = self.board.copy()
         cloned.current_player = self.current_player
         cloned.last_move = self.last_move

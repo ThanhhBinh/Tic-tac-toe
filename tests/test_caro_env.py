@@ -185,3 +185,92 @@ def test_reset_ve_trang_thai_dau() -> None:
     assert env.current_player is Player.X
     assert env.move_count == 0
     assert not env.done
+    assert env.winner is None
+
+
+def _place_stones(env: CaroEnv, stones: dict[tuple[int, int], Player]) -> None:
+    """Đặt sẵn quân trên bàn (bỏ qua luật lượt — chỉ dùng trong test)."""
+    for (row, col), player in stones.items():
+        env.board[row, col] = player
+    env._move_count = len(stones)
+
+
+def test_chan_2_dau_khong_thang() -> None:
+    """OXXXXXO — đúng 5 quân bị chặn hai đầu, luật bật → không thắng."""
+    env = CaroEnv(size=10, double_end_block_rule=True)
+    row = 5
+    _place_stones(
+        env,
+        {
+            (row, 0): Player.O,
+            (row, 1): Player.X,
+            (row, 2): Player.X,
+            (row, 3): Player.X,
+            (row, 4): Player.X,
+            (row, 6): Player.O,
+        },
+    )
+    env.current_player = Player.X
+    env.step((row, 5))
+    assert not env.done
+    assert env.winner is None
+
+
+def test_chan_2_dau_mot_dau_mo_van_thang() -> None:
+    """_XXXXXO — một đầu trống, luật bật → vẫn thắng."""
+    env = CaroEnv(size=10, double_end_block_rule=True)
+    row = 5
+    _place_stones(
+        env,
+        {
+            (row, 1): Player.X,
+            (row, 2): Player.X,
+            (row, 3): Player.X,
+            (row, 4): Player.X,
+        },
+    )
+    env.current_player = Player.X
+    env.step((row, 5))
+    assert env.done
+    assert env.winner is Player.X
+
+
+def test_chan_2_dau_tat_van_thang() -> None:
+    """OXXXXXO — luật tắt → vẫn tính thắng như cờ caro chuẩn."""
+    env = CaroEnv(size=10, double_end_block_rule=False)
+    row = 5
+    _place_stones(
+        env,
+        {
+            (row, 0): Player.O,
+            (row, 1): Player.X,
+            (row, 2): Player.X,
+            (row, 3): Player.X,
+            (row, 4): Player.X,
+        },
+    )
+    env.current_player = Player.X
+    env.step((row, 5))
+    assert env.done
+    assert env.winner is Player.X
+
+
+def test_hon_6_quan_bi_chan_van_thang() -> None:
+    """OXXXXXXO — 6 quân liên tiếp, luật bật → vẫn thắng."""
+    env = CaroEnv(size=10, double_end_block_rule=True)
+    row = 5
+    _place_stones(
+        env,
+        {
+            (row, 0): Player.O,
+            (row, 1): Player.X,
+            (row, 2): Player.X,
+            (row, 3): Player.X,
+            (row, 4): Player.X,
+            (row, 5): Player.X,
+        },
+    )
+    env.current_player = Player.X
+    env.step((row, 6))
+    assert env.done
+    assert env.winner is Player.X

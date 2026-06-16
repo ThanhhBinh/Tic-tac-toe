@@ -15,6 +15,7 @@ import pygame
 
 from ai.base_agent import Agent
 from ai.factory import create_agent
+from ai.online_learner import GameMoveRecorder, learn_from_pva_game
 from ai.threats import ThreatAnalysis, analyze_threats
 from config import (
     AI_MOVE_TIMEOUT_SEC,
@@ -49,7 +50,10 @@ class GameScreen(BaseScreen):
     def __init__(self, app: "App") -> None:
         """Khởi tạo các thuộc tính; ván thực sự được dựng trong on_enter()."""
         super().__init__(app)
-        self.env: CaroEnv = CaroEnv(size=app.settings.board_size)
+        self.env: CaroEnv = CaroEnv(
+            size=app.settings.board_size,
+            double_end_block_rule=app.settings.double_end_block_rule,
+        )
         self.agents: dict[Player, Agent | None] = {Player.X: None, Player.O: None}
 
         self.place_anim: PlaceAnimation | None = None
@@ -86,11 +90,16 @@ class GameScreen(BaseScreen):
         self._btn_redo: pygame.Rect | None = None
         self._mouse_pos: tuple[int, int] = (0, 0)
         self._threat_hint: ThreatAnalysis | None = None
+        self._move_recorder = GameMoveRecorder()
+        self._last_learn_message: str | None = None
 
     def on_enter(self) -> None:
         """Dựng lại môi trường và agent theo cấu hình hiện tại mỗi khi vào màn."""
         settings = self.app.settings
-        self.env = CaroEnv(size=settings.board_size)
+        self.env = CaroEnv(
+            size=settings.board_size,
+            double_end_block_rule=settings.double_end_block_rule,
+        )
         self.env.reset()
 
         ai = lambda: create_agent(  # noqa: E731
@@ -118,6 +127,8 @@ class GameScreen(BaseScreen):
         self._was_done = False
         self._end_overlay_dismissed = False
         self._end_overlay_box = None
+        self._move_recorder.reset()
+        self._last_learn_message = None
         self._init_history()
         self._compute_geometry()
         self._update_win_probability()
@@ -163,6 +174,48 @@ class GameScreen(BaseScreen):
             if self.agents[player] is None:
                 return player
         return None
+
+    def _record_ai_move(self, env_before: CaroEnv, move: Move, ai_player: Player) -> None:
+        """Ghi nước AI để học online sau ván."""
+        self._move_recorder.record_ai_move(env_before, move, ai_player, self.env)
+
+    def _maybe_learn_from_game(self) -> None:
+        """Học từ ván vừa kết thúc (chạy nền để không treo UI)."""
+        if not self._is_pva() or not self.env.done:
+            return
+
+        human = self._human_player()
+        if human is None:
+            return
+
+        ai_player = human.opponent
+        ai_agent = self.agents.get(ai_player)
+        recorder = self._move_recorder
+        board_size = self.env.size
+        env_snapshot = self.env.clone()
+
+        def worker() -> None:
+            result = learn_from_pva_game(
+                recorder,
+                board_size,
+                human,
+                env_snapshot.winner,
+                env_snapshot.is_draw,
+                ai_agent,
+            )
+            if result is None:
+                return
+            if result.outcome == "ai_loss":
+                self._last_learn_message = (
+                    f"AI đã học từ thất bại ({result.ai_moves} nước, "
+                    f"{result.gradient_steps} bước)"
+                )
+            elif result.outcome == "ai_win":
+                self._last_learn_message = (
+                    f"AI củng cố chiến thắng ({result.gradient_steps} bước)"
+                )
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def _is_pva(self) -> bool:
         """True nếu đang chơi Người vs AI."""
@@ -231,6 +284,7 @@ class GameScreen(BaseScreen):
         steps = self._undo_steps()
         if steps <= 0:
             return
+        self._move_recorder.invalidate()
         self._restore_history(self._history_index - steps)
 
     def _redo(self) -> None:
@@ -284,14 +338,26 @@ class GameScreen(BaseScreen):
             if self.ai_think_elapsed >= AI_MOVE_TIMEOUT_SEC:
                 legal = self.env.candidate_moves(radius=2) or self.env.legal_moves()
                 if legal:
+                    env_before = self.env.clone()
+                    ai_player = self.env.current_player
                     self._reset_ai_worker()
-                    self._apply_move(legal[0])
+                    self._apply_move(legal[0], trigger_learn=False)
+                    if self.agents.get(ai_player) is not None:
+                        self._record_ai_move(env_before, legal[0], ai_player)
+                    if self.env.done:
+                        self._maybe_learn_from_game()
             return
 
         if self._ai_move_result is not None:
             move = self._ai_move_result
+            env_before = self.env.clone()
+            ai_player = self.env.current_player
             self._reset_ai_worker()
-            self._apply_move(move)
+            self._apply_move(move, trigger_learn=False)
+            if self.agents.get(ai_player) is not None:
+                self._record_ai_move(env_before, move, ai_player)
+            if self.env.done:
+                self._maybe_learn_from_game()
 
     def _compute_geometry(self) -> None:
         """Tính kích thước ô và gốc toạ độ bàn cờ vừa với cửa sổ."""
@@ -439,7 +505,7 @@ class GameScreen(BaseScreen):
             self.ai_think_elapsed += dt
             self._poll_ai_worker()
 
-    def _apply_move(self, move: Move) -> None:
+    def _apply_move(self, move: Move, *, trigger_learn: bool = True) -> None:
         """Thực hiện nước đi lên môi trường và khởi động hiệu ứng đặt quân."""
         player = self.env.current_player
         self.env.step(move)
@@ -447,6 +513,8 @@ class GameScreen(BaseScreen):
         self.place_anim = PlaceAnimation(move=move, player=player)
         self._update_win_probability()
         self._update_threat_hints()
+        if trigger_learn and self.env.done:
+            self._maybe_learn_from_game()
 
     def _update_win_probability(self) -> None:
         """Cập nhật xác suất thắng (DQN hoặc heuristic) cho người chơi trên HUD."""
@@ -937,12 +1005,20 @@ class GameScreen(BaseScreen):
 
         render_text(surface, title, int(44 * scale), color, center=(cx, box.top + 56), bold=True)
         render_text(surface, subtitle, 18, Theme.TEXT_MUTED, center=(cx, box.top + 100))
+        if self._last_learn_message:
+            render_text(
+                surface,
+                self._last_learn_message,
+                15,
+                Theme.ACCENT,
+                center=(cx, box.top + 128),
+            )
         render_text(
             surface,
             "Click ngoài pop-up hoặc Space để xem bàn cờ",
             14,
             Theme.TEXT_MUTED,
-            center=(cx, box.top + 132),
+            center=(cx, box.top + 156 if self._last_learn_message else 132),
         )
 
         self._btn_dismiss_overlay = pygame.Rect(0, 0, 220, 44)

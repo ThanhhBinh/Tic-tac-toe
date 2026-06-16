@@ -39,7 +39,8 @@ class TacticalConfig:
     """Cấu hình luật chiến thuật cho AI và cảnh báo UI.
 
     Attributes:
-        double_end_block_rule: Bật chặn tam/tứ mở hai đầu (luật «chặn 2 đầu»).
+        double_end_block_rule: Luật «chặn 2 đầu» — đúng 5 quân bị kẹp hai
+            đầu không thắng; AI/UI cũng ưu tiên chặn tam/tứ mở hai đầu.
         aggressive: AI ưu tiên tấn công (tam/tứ mở) trước chặn tam mở nhẹ.
         threat_warnings: Hiển thị cảnh báo sắp thắng trên UI.
     """
@@ -136,6 +137,12 @@ DQN_SAVE_EVERY: int = 500
 DQN_LOG_EVERY: int = 50
 DQN_EVAL_EVERY: int = 500
 DQN_EVAL_GAMES: int = 10
+
+# Học online khi chơi Người vs AI (DQN / Hybrid).
+ONLINE_LEARN_ENABLED: bool = True
+ONLINE_LEARN_GRADIENT_STEPS: int = 32
+# Số mẫu tối thiểu trong buffer để chạy gradient sau một ván (nhỏ hơn train.py).
+ONLINE_LEARN_MIN_SAMPLES: int = 8
 
 # Hybrid: depth GIỚI HẠN thấp hơn Minimax thuần vì mỗi node lá chạy forward DQN.
 # Expert=3 (KHÔNG dùng 4) — depth 4 + DQN khiến UI treo hàng chục giây/phút.

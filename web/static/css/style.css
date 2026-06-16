@@ -806,6 +806,12 @@ html, body {
   color: var(--win);
 }
 .modal-card p { color: var(--text-muted); margin-bottom: 24px; }
+.end-learn {
+  color: var(--accent-cool);
+  font-size: 0.9rem;
+  margin-top: -12px;
+  margin-bottom: 20px;
+}
 
 .modal-actions {
   display: flex;

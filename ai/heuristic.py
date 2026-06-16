@@ -394,10 +394,10 @@ def find_tactical_move(
     radius: int = 2,
     config: TacticalConfig | None = None,
 ) -> Move | None:
-    """Luật chiến thuật trước Minimax: thắng → chặn thua → tấn công → phòng tứ/tam mở.
+    """Luật chiến thuật trước Minimax: thắng → chặn thua → phòng tứ/tam mở → tấn công.
 
-    Thứ tự cân bằng tấn công/phòng thủ: sau khi chặn thua ngay, AI tấn công
-    (tứ/tam mở) trước khi chặn tam mở nhẹ — tránh chỉ phòng thủ bị động.
+    Thứ tự ưu tiên: chặn đe dọa đối thủ (tứ/tam mở) trước khi tự tấn công,
+    kể cả khi bật chế độ aggressive — tránh bỏ qua tam mở đối thủ.
 
     Args:
         env: Môi trường hiện tại.
@@ -417,6 +417,21 @@ def find_tactical_move(
     if block is not None:
         return block
 
+    defend_four = find_open_four_block(env, player, radius=radius)
+    if defend_four is not None:
+        return defend_four
+
+    defend_three = find_open_three_block(env, player, radius=radius)
+    if defend_three is not None:
+        return defend_three
+
+    if cfg.double_end_block_rule:
+        from ai.threats import find_open_three_block_double_end
+
+        defend_double = find_open_three_block_double_end(env, player, radius=radius)
+        if defend_double is not None:
+            return defend_double
+
     if cfg.aggressive:
         attack_four = find_open_four_move(env, player, radius=radius)
         if attack_four is not None:
@@ -426,16 +441,5 @@ def find_tactical_move(
         attack_three = find_open_three_attack(env, player, radius=radius)
         if attack_three is not None:
             return attack_three
-
-    defend_four = find_open_four_block(env, player, radius=radius)
-    if defend_four is not None:
-        return defend_four
-
-    if cfg.double_end_block_rule:
-        from ai.threats import find_open_three_block_double_end
-
-        defend_double = find_open_three_block_double_end(env, player, radius=radius)
-        if defend_double is not None:
-            return defend_double
 
     return None

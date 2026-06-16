@@ -246,9 +246,10 @@ class DQNTrainer:
             bonus += DQN_REWARD_OPEN_THREE
         return DQN_REWARD_STEP + bonus
 
-    def _optimize(self) -> float:
+    def _optimize(self, batch_size: int | None = None) -> float:
         """Một bước gradient trên mini-batch từ replay buffer."""
-        batch = self.buffer.sample(self.batch_size)
+        bs = batch_size or self.batch_size
+        batch = self.buffer.sample(bs)
         states = torch.from_numpy(self.buffer.states_batch(batch)).to(self.device)
         actions = torch.tensor([t.action for t in batch], dtype=torch.long, device=self.device)
         rewards = torch.tensor([t.reward for t in batch], dtype=torch.float32, device=self.device)

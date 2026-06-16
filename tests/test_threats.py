@@ -25,8 +25,30 @@ def test_canh_bao_thang_ngay() -> None:
     assert analysis.message
 
 
-def test_ai_tan_cong_truoc_chan_tam_mo() -> None:
-    """Chế độ aggressive: tấn công tứ mở trước chặn tam mở nhẹ."""
+def test_ai_chan_tam_mo_doi_thu_truoc_tan_cong() -> None:
+    """Aggressive vẫn chặn tam mở đối thủ trước khi tự tấn công."""
+    env = CaroEnv(size=10)
+    # Đối thủ O có tam mở trên hàng 5.
+    env.board[5, 2] = Player.O
+    env.board[5, 3] = Player.O
+    env.board[5, 4] = Player.O
+    # X có 3 quân ở hàng 6 — có thể tấn công nhưng phải chặn O trước.
+    env.board[6, 1] = Player.X
+    env.board[6, 2] = Player.X
+    env.board[6, 3] = Player.X
+    env.current_player = Player.X
+    env._move_count = 6  # noqa: SLF001
+
+    move = find_tactical_move(
+        env,
+        Player.X,
+        config=TacticalConfig(aggressive=True, double_end_block_rule=True),
+    )
+    assert move in {(5, 1), (5, 5)}
+
+
+def test_ai_tan_cong_khi_khong_co_de_doa() -> None:
+    """Chế độ aggressive: tấn công tứ mở khi không có đe dọa cần chặn."""
     env = CaroEnv(size=10)
     env.board[5, 1] = Player.X
     env.board[5, 2] = Player.X

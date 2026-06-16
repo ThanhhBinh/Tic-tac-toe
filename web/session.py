@@ -14,6 +14,7 @@ from typing import Any
 
 from ai.base_agent import Agent
 from ai.factory import create_agent
+from ai.online_learner import GameMoveRecorder, learn_from_pva_game
 from ai.threats import analyze_threats
 from config import (
     AIType,
@@ -57,11 +58,16 @@ class GameSession:
         """Khởi tạo môi trường, agent và lịch sử undo/redo."""
         self.id: str = str(uuid.uuid4())
         self.settings = settings
-        self.env = CaroEnv(size=settings.board_size)
+        self.env = CaroEnv(
+            size=settings.board_size,
+            double_end_block_rule=settings.double_end_block_rule,
+        )
         self.env.reset()
         self.agents: dict[Player, Agent | None] = self._build_agents()
         self._history: list[CaroEnv] = [self.env.clone()]
         self._history_index: int = 0
+        self._move_recorder = GameMoveRecorder()
+        self._last_learn_result: dict[str, Any] | None = None
         self._run_initial_ai_turn()
 
     def _run_initial_ai_turn(self) -> None:
@@ -136,11 +142,45 @@ class GameSession:
         self._history_index = index
         self.env.copy_state_from(self._history[index])
 
+    def _record_ai_move(self, env_before: CaroEnv, move: Move, ai_player: Player) -> None:
+        """Ghi nước AI để học online sau ván."""
+        self._move_recorder.record_ai_move(env_before, move, ai_player, self.env)
+
+    def _maybe_learn_from_game(self) -> None:
+        """Học từ ván vừa kết thúc và gắn kết quả vào response ngay."""
+        if not self._is_pva() or not self.env.done:
+            return
+
+        human = self._human_player()
+        if human is None:
+            return
+
+        ai_player = human.opponent
+        ai_agent = self.agents.get(ai_player)
+        result = learn_from_pva_game(
+            self._move_recorder,
+            self.settings.board_size,
+            human,
+            self.env.winner,
+            self.env.is_draw,
+            ai_agent,
+        )
+        if result is not None:
+            self._last_learn_result = {
+                "outcome": result.outcome,
+                "ai_moves": result.ai_moves,
+                "gradient_steps": result.gradient_steps,
+                "avg_loss": round(result.avg_loss, 5),
+                "model_saved": result.model_saved,
+                "buffered_only": result.buffered_only,
+            }
+
     def undo(self) -> dict[str, Any]:
         """Quay lại nước trước."""
         steps = self._undo_steps()
         if steps <= 0:
             raise ValueError("Không thể quay lại thêm.")
+        self._move_recorder.invalidate()
         self._restore_history(self._history_index - steps)
         return self.to_dict()
 
@@ -164,8 +204,13 @@ class GameSession:
             agent = self.agents[self.env.current_player]
             if agent is None:
                 break
-            move = agent.get_move(self.env.clone())
+            ai_player = self.env.current_player
+            env_before = self.env.clone()
+            move = agent.get_move(env_before.clone())
             self._apply_move(move)
+            self._record_ai_move(env_before, move, ai_player)
+        if self.env.done:
+            self._maybe_learn_from_game()
 
     def step_ai_turn(self) -> dict[str, Any]:
         """Tiến đúng một lượt AI (dùng cho AvA tự chạy trên web).
@@ -203,6 +248,8 @@ class GameSession:
         self._apply_move((row, col))
         if not self.env.done:
             self._run_ai_turns()
+        else:
+            self._maybe_learn_from_game()
         return self.to_dict()
 
     def step_ava(self) -> dict[str, Any]:
@@ -303,6 +350,7 @@ class GameSession:
             },
             "threats": self._threats_payload(),
             "status_text": self._status_text(),
+            "online_learn": self._last_learn_result,
         }
 
     def _status_text(self) -> str:

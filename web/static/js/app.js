@@ -23,8 +23,43 @@ let avaRunning = false;
 let aiThinkingActive = false;
 let aiThinkTimer = null;
 let aiThinkStart = 0;
+let learnPollTimer = null;
 
 const AVA_MOVE_DELAY_MS = 320;
+
+/** Chờ kết quả học online (chạy nền sau khi ván kết thúc). */
+function scheduleOnlineLearnPoll() {
+  if (learnPollTimer != null) {
+    clearInterval(learnPollTimer);
+    learnPollTimer = null;
+  }
+  if (!sessionId || !state?.done || state.settings?.mode !== "Player vs AI") {
+    return;
+  }
+  if (state.online_learn) {
+    return;
+  }
+
+  let attempts = 0;
+  learnPollTimer = setInterval(async () => {
+    attempts += 1;
+    if (attempts > 24 || !sessionId) {
+      clearInterval(learnPollTimer);
+      learnPollTimer = null;
+      return;
+    }
+    try {
+      const next = await api(`/api/games/${sessionId}`);
+      if (next.online_learn) {
+        updateUI(next);
+        clearInterval(learnPollTimer);
+        learnPollTimer = null;
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  }, 500);
+}
 
 /** Hiển thị / ẩn thanh suy nghĩ AI ở sidebar (không che bàn cờ). */
 function setAiThinking(active, label = "AI suy nghĩ") {
@@ -50,7 +85,10 @@ function setAiThinking(active, label = "AI suy nghĩ") {
     $("#ai-think-time").textContent = "0.0s";
   }
 
-  if (state) updateHUD(state);
+  if (state) {
+    renderBoard(state);
+    updateHUD(state);
+  }
 }
 
 /** Dừng vòng lặp AI vs AI. */
@@ -373,6 +411,35 @@ function updateEndUI(s) {
   $("#end-icon").textContent = s.is_draw ? "🤝" : "🏆";
   $("#banner-text").textContent = title;
 
+  const learnEl = $("#end-learn");
+  if (learnEl) {
+    const learn = s.online_learn;
+    if (learn && learn.outcome === "ai_loss") {
+      if (learn.model_saved) {
+        learnEl.textContent =
+          `🧠 AI đã học từ thất bại (${learn.ai_moves} nước, ${learn.gradient_steps} bước cập nhật)`;
+      } else if (learn.buffered_only) {
+        learnEl.textContent =
+          `📝 AI đã ghi nhớ thất bại (${learn.ai_moves} nước) — cần thêm ván để cập nhật model`;
+      } else {
+        learnEl.textContent =
+          `📝 AI đã ghi nhớ thất bại (${learn.ai_moves} nước)`;
+      }
+      learnEl.classList.remove("hidden");
+    } else if (learn && learn.outcome === "ai_win") {
+      if (learn.model_saved) {
+        learnEl.textContent =
+          `🧠 AI củng cố chiến thắng (${learn.gradient_steps} bước cập nhật)`;
+      } else {
+        learnEl.textContent = `📝 AI đã ghi nhớ chiến thắng`;
+      }
+      learnEl.classList.remove("hidden");
+    } else {
+      learnEl.textContent = "";
+      learnEl.classList.add("hidden");
+    }
+  }
+
   if (modalDismissed) {
     endModal.classList.add("hidden");
     endBanner.classList.remove("hidden");
@@ -380,6 +447,8 @@ function updateEndUI(s) {
     endModal.classList.remove("hidden");
     endBanner.classList.add("hidden");
   }
+
+  scheduleOnlineLearnPoll();
 }
 
 function dismissModal() {
