@@ -9,6 +9,7 @@ nước cuối, đưa vào replay buffer và cập nhật mạng DQN — giúp A
 from __future__ import annotations
 
 import threading
+from collections import deque
 from dataclasses import dataclass
 from typing import Literal
 
@@ -17,20 +18,38 @@ from ai.board_encoder import encode_board, move_to_action
 from ai.dqn_agent import DQNAgent
 from ai.dqn_trainer import DQNTrainer
 from ai.hybrid_agent import HybridAgent
+from ai.learning_inspector import (
+    append_learn_log,
+    backup_model_if_exists,
+    build_learn_log_record,
+)
 from ai.replay_buffer import Transition
+from ai.save_gate import (
+    commit_online_checkpoint,
+    load_agent_from_path,
+    snapshot_trainer_agent,
+)
 from config import (
     DQN_BATCH_SIZE,
     DQN_BUFFER_CAPACITY,
+    ONLINE_LEARN_DRAW_MIN_AI_MOVES,
     ONLINE_LEARN_ENABLED,
     ONLINE_LEARN_GRADIENT_STEPS,
+    ONLINE_LEARN_GRADIENT_STEPS_HIGH,
+    ONLINE_LEARN_GRADIENT_STEPS_LOW,
+    ONLINE_LEARN_MIN_AI_MOVES,
     ONLINE_LEARN_MIN_SAMPLES,
+    ONLINE_LOSS_CREDIT_REWARDS,
+    ONLINE_LOSS_HISTORY_SIZE,
     Player,
+    dqn_model_backup_path,
     dqn_model_path,
 )
 from core.caro_env import CaroEnv
 from core.constants import Move
 
 GameOutcome = Literal["ai_loss", "ai_win", "draw"]
+GameQuality = Literal["skip", "low", "medium", "high"]
 
 
 def extract_dqn_agent(agent: Agent | None) -> DQNAgent | None:
@@ -44,6 +63,32 @@ def extract_dqn_agent(agent: Agent | None) -> DQNAgent | None:
     return None
 
 
+def assess_game_quality(outcome: GameOutcome, ai_moves: int) -> GameQuality:
+    """Phân loại chất lượng ván để quyết định có train / train bao nhiêu bước."""
+    if outcome == "ai_win" and ai_moves < ONLINE_LEARN_MIN_AI_MOVES:
+        return "skip"
+    if outcome == "draw" and ai_moves < ONLINE_LEARN_DRAW_MIN_AI_MOVES:
+        return "skip"
+    if outcome == "ai_loss" and ai_moves >= 10:
+        return "high"
+    if outcome == "draw":
+        return "high"
+    if outcome == "ai_loss" and ai_moves < 4:
+        return "low"
+    if outcome == "ai_win" and ai_moves >= 10:
+        return "medium"
+    return "medium"
+
+
+def gradient_steps_for_quality(quality: GameQuality) -> int:
+    """Số bước gradient theo chất lượng ván."""
+    if quality == "high":
+        return ONLINE_LEARN_GRADIENT_STEPS_HIGH
+    if quality == "low":
+        return ONLINE_LEARN_GRADIENT_STEPS_LOW
+    return ONLINE_LEARN_GRADIENT_STEPS
+
+
 @dataclass(slots=True)
 class LearnResult:
     """Kết quả một lần học online."""
@@ -54,6 +99,9 @@ class LearnResult:
     avg_loss: float
     model_saved: bool
     buffered_only: bool = False
+    quality: GameQuality = "medium"
+    gate_reason: str = ""
+    rolled_back: bool = False
 
 
 class GameMoveRecorder:
@@ -106,6 +154,24 @@ class GameMoveRecorder:
             )
         )
 
+    @staticmethod
+    def _apply_loss_credit(items: list[Transition]) -> list[Transition]:
+        """Gán reward âm dần cho 3 nước cuối khi AI thua."""
+        credits = ONLINE_LOSS_CREDIT_REWARDS
+        for offset, credit in enumerate(credits):
+            idx = len(items) - 1 - offset
+            if idx < 0:
+                break
+            last = items[idx]
+            items[idx] = Transition(
+                state=last.state,
+                action=last.action,
+                reward=credit,
+                next_state=last.next_state,
+                done=offset == 0,
+            )
+        return items
+
     def build_transitions(self, outcome: GameOutcome) -> list[Transition]:
         """Chuẩn hoá phần thưởng cuối ván trước khi đưa vào buffer."""
         if self._invalidated or not self._transitions:
@@ -113,20 +179,22 @@ class GameMoveRecorder:
 
         items = list(self._transitions)
         if outcome == "ai_loss":
-            last = items[-1]
-            items[-1] = Transition(
-                state=last.state,
-                action=last.action,
-                reward=-1.0,
-                next_state=last.next_state,
-                done=True,
-            )
-        elif outcome == "ai_win":
+            return self._apply_loss_credit(items)
+        if outcome == "ai_win":
             last = items[-1]
             items[-1] = Transition(
                 state=last.state,
                 action=last.action,
                 reward=1.0,
+                next_state=last.next_state,
+                done=True,
+            )
+        elif outcome == "draw":
+            last = items[-1]
+            items[-1] = Transition(
+                state=last.state,
+                action=last.action,
+                reward=0.0,
                 next_state=last.next_state,
                 done=True,
             )
@@ -146,6 +214,7 @@ class OnlineLearner:
             buffer_capacity=DQN_BUFFER_CAPACITY,
         )
         self._lock = threading.Lock()
+        self._recent_losses: deque[float] = deque(maxlen=ONLINE_LOSS_HISTORY_SIZE)
         model_path = dqn_model_path(board_size)
         if model_path.exists():
             self.trainer.load_checkpoint(model_path)
@@ -158,6 +227,12 @@ class OnlineLearner:
                 cls._instances[board_size] = cls(board_size)
             return cls._instances[board_size]
 
+    @classmethod
+    def reset_instances(cls) -> None:
+        """Xoá singleton — dùng trong test."""
+        with cls._instances_lock:
+            cls._instances.clear()
+
     def learn_from_game(
         self,
         recorder: GameMoveRecorder,
@@ -168,7 +243,12 @@ class OnlineLearner:
         Returns:
             LearnResult nếu có học; None nếu tắt hoặc không có dữ liệu.
         """
-        if not ONLINE_LEARN_ENABLED or outcome == "draw":
+        if not ONLINE_LEARN_ENABLED:
+            return None
+
+        ai_moves = recorder.ai_move_count
+        quality = assess_game_quality(outcome, ai_moves)
+        if quality == "skip":
             return None
 
         transitions = recorder.build_transitions(outcome)
@@ -177,7 +257,10 @@ class OnlineLearner:
 
         with self._lock:
             for transition in transitions:
-                self.trainer.buffer.push(transition)
+                priority = max(abs(transition.reward), 0.01)
+                if quality == "high" and transition.reward < 0:
+                    priority *= 2.0
+                self.trainer.buffer.push(transition, priority=priority)
 
             buffer_len = len(self.trainer.buffer)
             effective_batch = min(DQN_BATCH_SIZE, buffer_len)
@@ -185,8 +268,21 @@ class OnlineLearner:
 
             steps = 0
             loss_sum = 0.0
+            saved = False
+            rolled_back = False
+            gate_reason = ""
+
             if can_train:
-                for _ in range(ONLINE_LEARN_GRADIENT_STEPS):
+                backup_model_if_exists(self.board_size)
+                agent_before = load_agent_from_path(
+                    dqn_model_backup_path(self.board_size),
+                    self.board_size,
+                )
+                if agent_before is None:
+                    agent_before = snapshot_trainer_agent(self.trainer)
+
+                max_steps = gradient_steps_for_quality(quality)
+                for _ in range(max_steps):
                     if len(self.trainer.buffer) < ONLINE_LEARN_MIN_SAMPLES:
                         break
                     batch_size = min(DQN_BATCH_SIZE, len(self.trainer.buffer))
@@ -194,12 +290,40 @@ class OnlineLearner:
                     steps += 1
                     self.trainer._maybe_sync_target()
 
-            saved = False
-            if steps > 0:
-                self.trainer.save_agent()
-                saved = True
+                avg_loss = loss_sum / steps if steps > 0 else 0.0
+                if steps > 0:
+                    gate = commit_online_checkpoint(
+                        self.trainer,
+                        self.board_size,
+                        transitions,
+                        outcome,
+                        avg_loss,
+                        self._recent_losses,
+                        agent_before,
+                    )
+                    saved = gate.saved
+                    rolled_back = gate.rolled_back
+                    gate_reason = gate.reason
+                    if saved and avg_loss > 0:
+                        self._recent_losses.append(avg_loss)
 
         avg_loss = loss_sum / steps if steps > 0 else 0.0
+        append_learn_log(
+            self.board_size,
+            build_learn_log_record(
+                self.board_size,
+                outcome,
+                transitions,
+                steps,
+                avg_loss,
+                saved,
+                not can_train,
+                buffer_len,
+                quality=quality,
+                gate_reason=gate_reason,
+                rolled_back=rolled_back,
+            ),
+        )
         return LearnResult(
             outcome=outcome,
             ai_moves=len(transitions),
@@ -207,6 +331,9 @@ class OnlineLearner:
             avg_loss=avg_loss,
             model_saved=saved,
             buffered_only=not can_train,
+            quality=quality,
+            gate_reason=gate_reason,
+            rolled_back=rolled_back,
         )
 
     @staticmethod
@@ -233,8 +360,12 @@ def resolve_game_outcome(
     is_draw: bool,
 ) -> GameOutcome | None:
     """Xác định kết quả ván từ góc AI (chỉ PvA)."""
-    if human is None or is_draw or winner is None:
-        return "draw" if is_draw else None
+    if human is None:
+        return None
+    if is_draw:
+        return "draw"
+    if winner is None:
+        return None
     if winner is human:
         return "ai_loss"
     if winner is human.opponent:
@@ -255,11 +386,11 @@ def learn_from_pva_game(
         return None
 
     outcome = resolve_game_outcome(human, winner, is_draw)
-    if outcome is None or outcome == "draw":
+    if outcome is None:
         return None
 
     learner = OnlineLearner.for_board(board_size)
     result = learner.learn_from_game(recorder, outcome)
-    if result is not None and result.model_saved:
+    if result is not None and (result.model_saved or result.rolled_back):
         OnlineLearner.reload_agent_weights(ai_agent)
     return result

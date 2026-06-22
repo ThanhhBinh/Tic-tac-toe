@@ -53,6 +53,20 @@ def test_recorder_finalize_loss_sets_negative_reward() -> None:
     assert transitions[-1].done is True
 
 
+def test_assess_game_quality_and_draw() -> None:
+    """Ván hòa ngắn bị skip; hòa dài được học."""
+    from ai.online_learner import assess_game_quality
+    from config import ONLINE_LEARN_DRAW_MIN_AI_MOVES
+
+    assert assess_game_quality("draw", ONLINE_LEARN_DRAW_MIN_AI_MOVES - 1) == "skip"
+    assert assess_game_quality("draw", ONLINE_LEARN_DRAW_MIN_AI_MOVES) == "high"
+
+
+def test_resolve_game_outcome_draw() -> None:
+    """Hòa trả draw (không None) để có thể học ván dài."""
+    assert resolve_game_outcome(Player.X, None, True) == "draw"
+
+
 def test_recorder_invalidated_after_undo() -> None:
     """Sau invalidate không còn transition để học."""
     recorder = GameMoveRecorder()

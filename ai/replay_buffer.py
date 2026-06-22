@@ -38,7 +38,7 @@ class Transition:
 
 
 class ReplayBuffer:
-    """Vòng đệm cố định lưu transition với lấy mẫu uniform ngẫu nhiên."""
+    """Vòng đệm cố định lưu transition với lấy mẫu ưu tiên theo |reward|."""
 
     def __init__(self, capacity: int, seed: int | None = None) -> None:
         """Khởi tạo buffer với sức chứa tối đa.
@@ -49,22 +49,31 @@ class ReplayBuffer:
         """
         self.capacity = capacity
         self._data: deque[Transition] = deque(maxlen=capacity)
+        self._priorities: deque[float] = deque(maxlen=capacity)
         self._rng = Random(seed)
 
     def __len__(self) -> int:
         """Số transition hiện có trong buffer."""
         return len(self._data)
 
-    def push(self, transition: Transition) -> None:
+    @staticmethod
+    def _default_priority(transition: Transition) -> float:
+        return max(abs(float(transition.reward)), 0.01)
+
+    def push(self, transition: Transition, *, priority: float | None = None) -> None:
         """Thêm một transition vào buffer.
 
         Args:
             transition: Bộ dữ liệu cần lưu.
+            priority: Trọng số lấy mẫu; None = theo |reward|.
         """
         self._data.append(transition)
+        self._priorities.append(
+            priority if priority is not None else self._default_priority(transition)
+        )
 
     def sample(self, batch_size: int) -> list[Transition]:
-        """Lấy ngẫu nhiên một mini-batch.
+        """Lấy mini-batch có trọng số theo priority (PER đơn giản).
 
         Args:
             batch_size: Kích thước batch (không vượt quá len(buffer)).
@@ -79,7 +88,10 @@ class ReplayBuffer:
             raise ValueError(
                 f"Buffer chỉ có {len(self._data)} phần tử, cần ít nhất {batch_size}."
             )
-        return self._rng.sample(list(self._data), batch_size)
+        items = list(self._data)
+        weights = list(self._priorities)
+        chosen = self._rng.choices(items, weights=weights, k=batch_size)
+        return chosen
 
     def states_batch(self, transitions: list[Transition]) -> NDArray[np.float32]:
         """Gom state của batch thành ndarray ``(B, 3, H, W)``."""

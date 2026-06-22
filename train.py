@@ -7,19 +7,25 @@ Chạy:
     python train.py --mode minimax           # học bằng cách đấu Minimax
     python train.py --board-size 10 --episodes 1000
     python train.py --resume models/dqn_15.pth
+    python train_curriculum.py               # curriculum depth 1→2→3→self-play
 """
 
 from __future__ import annotations
 
 import argparse
+import shutil
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
+
+from tqdm import tqdm
 
 from ai.dqn_trainer import DQNTrainer, TrainStats
 from ai.evaluate import play_game
 from ai.dqn_agent import DQNAgent
 from ai.minimax_agent import MinimaxAgent
+from ai.save_gate import evaluate_train_save_gate, tactical_benchmark_score
 from config import Player
 from config import (
     BOARD_SIZES,
@@ -30,6 +36,7 @@ from config import (
     DQN_LOG_EVERY,
     DQN_SAVE_EVERY,
     Difficulty,
+    dqn_model_best_path,
     dqn_model_path,
 )
 
@@ -113,6 +120,22 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Đường dẫn lưu model cuối (mặc định models/dqn_{size}.pth).",
     )
+    parser.add_argument(
+        "--no-save-gate",
+        action="store_true",
+        help="Tắt save gate — lưu mọi checkpoint như trước.",
+    )
+    parser.add_argument(
+        "--no-progress",
+        action="store_true",
+        help="Tắt thanh tiến độ (dùng khi chạy trong CI hoặc redirect log).",
+    )
+    parser.add_argument(
+        "--phase-label",
+        type=str,
+        default=None,
+        help="Nhãn hiển thị trên thanh tiến độ (curriculum).",
+    )
     return parser
 
 
@@ -135,18 +158,11 @@ def _log_progress(
 
 
 def _evaluate_dqn(board_size: int, num_games: int, minimax_depth: int) -> float:
-    """Đấu thử DQN (greedy) vs Minimax và trả tỷ lệ thắng của DQN.
-
-    Args:
-        board_size: Kích thước bàn cờ.
-        num_games: Số ván đấu thử.
-        minimax_depth: Độ sâu Minimax đối thủ.
-
-    Returns:
-        Tỷ lệ thắng của DQN trên tổng số ván.
-    """
+    """Đấu thử DQN (greedy) vs Minimax và trả tỷ lệ thắng của DQN."""
     dqn = DQNAgent(board_size=board_size, epsilon=0.0)
     minimax = MinimaxAgent(depth=minimax_depth)
+    if minimax_depth >= 2:
+        minimax.max_branch = 15  # eval nhanh, chỉ cần tương đối
     dqn_wins = 0
 
     for i in range(num_games):
@@ -162,23 +178,64 @@ def _evaluate_dqn(board_size: int, num_games: int, minimax_depth: int) -> float:
     return dqn_wins / num_games if num_games else 0.0
 
 
-def run_training(args: argparse.Namespace) -> Path:
-    """Thực thi vòng lặp huấn luyện theo tham số CLI.
+def _maybe_save_checkpoint(
+    trainer: DQNTrainer,
+    output: Path,
+    board_size: int,
+    win_rate: float | None,
+    best_win_rate: float,
+    use_gate: bool,
+) -> tuple[float, bool]:
+    """Lưu checkpoint nếu pass save gate; trả (best_win_rate, saved)."""
+    if not use_gate:
+        trainer.save_agent(output)
+        return best_win_rate, True
 
-    Args:
-        args: Namespace từ argparse.
+    if win_rate is None:
+        trainer.save_agent(output)
+        return best_win_rate, True
 
-    Returns:
-        Path file model đã lưu cuối cùng.
-    """
+    if evaluate_train_save_gate(trainer, board_size, win_rate, best_win_rate):
+        trainer.save_agent(output)
+        best_path = dqn_model_best_path(board_size)
+        shutil.copy2(output, best_path)
+        new_best = max(best_win_rate, win_rate)
+        return new_best, True
+
+    print(
+        f"  → Bỏ qua lưu: win rate {win_rate:.1%} < best {best_win_rate:.1%}",
+        flush=True,
+    )
+    return best_win_rate, False
+
+
+def run_training(
+    args: argparse.Namespace,
+    *,
+    on_episode: Callable[[int, TrainStats], None] | None = None,
+) -> Path:
+    """Thực thi vòng lặp huấn luyện theo tham số CLI."""
     board_size: int = args.board_size
     output = Path(args.output) if args.output else dqn_model_path(board_size)
+    use_gate = not getattr(args, "no_save_gate", False)
+    show_progress = not getattr(args, "no_progress", False) and sys.stderr.isatty()
+    bar_desc = getattr(args, "phase_label", None) or "Train"
 
     opponent = None
     mode_label = "Self-play"
+    eval_depth = args.opponent_depth
+    opponent_max_branch: int | None = getattr(args, "opponent_max_branch", None)
     if args.mode == "minimax":
         opponent = MinimaxAgent(depth=args.opponent_depth)
-        mode_label = f"vs Minimax (depth={args.opponent_depth})"
+        # Giới hạn nhánh để training nhanh hơn (mặc định 15 nếu depth >= 2)
+        if opponent_max_branch is None and args.opponent_depth >= 2:
+            opponent_max_branch = 15
+        if opponent_max_branch is not None:
+            opponent.max_branch = opponent_max_branch
+        branch_str = f", max_branch={opponent_max_branch}" if opponent_max_branch else ""
+        mode_label = f"vs Minimax (depth={args.opponent_depth}{branch_str})"
+    else:
+        eval_depth = int(Difficulty.MEDIUM)
 
     print("=" * 60)
     print("  HUẤN LUYỆN DQN — AI CỜ CARO")
@@ -186,6 +243,7 @@ def run_training(args: argparse.Namespace) -> Path:
     print(f"  Bàn cờ     : {board_size}x{board_size}")
     print(f"  Chế độ     : {mode_label}")
     print(f"  Episodes   : {args.episodes}")
+    print(f"  Save gate  : {'bật' if use_gate else 'tắt'}")
     print(f"  Thiết bị   : {args.device or 'tự phát hiện'}")
     print(f"  Checkpoint : {output}")
     print("=" * 60)
@@ -201,37 +259,98 @@ def run_training(args: argparse.Namespace) -> Path:
         resume_path = Path(args.resume)
         print(f"Tiếp tục từ checkpoint: {resume_path}")
         trainer.load_checkpoint(resume_path)
+    else:
+        best_path = dqn_model_best_path(board_size)
+        if best_path.exists():
+            trainer.load_checkpoint(best_path)
+            print(f"Nạp best checkpoint: {best_path}")
 
+    best_win_rate = 0.0
+    best_path = dqn_model_best_path(board_size)
     t0 = time.perf_counter()
 
+    def _emit(message: str) -> None:
+        if pbar is not None:
+            pbar.write(message)
+        else:
+            print(message, flush=True)
+
+    pbar: tqdm | None = None
     try:
-        for ep in range(1, args.episodes + 1):
+        pbar = tqdm(
+            range(1, args.episodes + 1),
+            desc=bar_desc,
+            unit="ep",
+            disable=not show_progress,
+            file=sys.stderr,
+            dynamic_ncols=True,
+            bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}] {postfix}",
+        )
+        for ep in pbar:
             reward_x = trainer.train_episode(opponent=opponent)
 
-            if args.log_every > 0 and ep % args.log_every == 0:
+            pbar.set_postfix(
+                eps=f"ε={trainer.epsilon:.2f}",
+                win=f"{trainer.stats.win_rate_x:.0%}",
+                best=f"{best_win_rate:.0%}",
+                loss=f"{trainer.stats.avg_loss:.2f}",
+                refresh=False,
+            )
+
+            if on_episode is not None:
+                on_episode(ep, trainer.stats)
+
+            if args.log_every > 0 and ep % args.log_every == 0 and not show_progress:
                 _log_progress(ep, trainer.stats, trainer.epsilon, reward_x)
 
             if args.save_every > 0 and ep % args.save_every == 0:
-                saved = trainer.save_agent(output)
-                print(f"  → Đã lưu checkpoint: {saved}")
+                win_rate = None
+                if use_gate and trainer.stats.episodes >= 10:
+                    win_rate = _evaluate_dqn(board_size, min(20, args.eval_games), eval_depth)
+                best_win_rate, saved = _maybe_save_checkpoint(
+                    trainer, output, board_size, win_rate, best_win_rate, use_gate
+                )
+                if saved:
+                    _emit(f"  → Đã lưu checkpoint: {output}")
 
             if (
                 args.eval_every > 0
                 and ep % args.eval_every == 0
                 and trainer.stats.episodes >= 10
             ):
-                trainer.save_agent(output)
-                win_rate = _evaluate_dqn(board_size, args.eval_games, args.opponent_depth)
-                print(
-                    f"  → Eval vs Minimax ({args.eval_games} ván): "
-                    f"DQN thắng {win_rate:.1%}",
-                    flush=True,
+                win_rate = _evaluate_dqn(board_size, args.eval_games, eval_depth)
+                _, saved = _maybe_save_checkpoint(
+                    trainer, output, board_size, win_rate, best_win_rate, use_gate
+                )
+                if saved:
+                    best_win_rate = max(best_win_rate, win_rate)
+                agent = DQNAgent(board_size=board_size, epsilon=0.0)
+                agent.network.load_state_dict(trainer.policy_net.state_dict())
+                agent._model_loaded = True
+                _, _, tactical_pct = tactical_benchmark_score(agent, board_size)
+                _emit(
+                    f"  → Eval ep {ep}: DQN thắng {win_rate:.1%} | "
+                    f"benchmark TH {tactical_pct:.0f}% | best {best_win_rate:.1%}"
+                )
+                pbar.set_postfix(
+                    eps=f"ε={trainer.epsilon:.2f}",
+                    win=f"{trainer.stats.win_rate_x:.0%}",
+                    best=f"{best_win_rate:.0%}",
+                    loss=f"{trainer.stats.avg_loss:.2f}",
+                    refresh=False,
                 )
     except KeyboardInterrupt:
-        print("\nNgắt huấn luyện (Ctrl+C). Đang lưu model hiện tại...", flush=True)
+        _emit("\nNgắt huấn luyện (Ctrl+C). Đang lưu model tốt nhất...")
+    finally:
+        if pbar is not None:
+            pbar.close()
 
-    # Lưu model cuối cùng (kể cả khi bị ngắt).
-    final_path = trainer.save_agent(output)
+    if best_path.exists():
+        shutil.copy2(best_path, output)
+        final_path = output
+    else:
+        final_path = trainer.save_agent(output)
+
     elapsed = time.perf_counter() - t0
 
     print("=" * 60)
@@ -240,20 +359,14 @@ def run_training(args: argparse.Namespace) -> Path:
     print(f"  Episodes   : {trainer.stats.episodes}")
     print(f"  Tổng bước  : {trainer.stats.total_steps}")
     print(f"  X thắng    : {trainer.stats.win_rate_x:.1%}")
+    print(f"  Best eval  : {best_win_rate:.1%}")
     print(f"  Model      : {final_path}")
     print("=" * 60)
     return final_path
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Điểm vào CLI huấn luyện DQN.
-
-    Args:
-        argv: Tham số dòng lệnh (mặc định ``sys.argv[1:]``).
-
-    Returns:
-        Mã thoát 0 nếu thành công.
-    """
+    """Điểm vào CLI huấn luyện DQN."""
     parser = _build_parser()
     args = parser.parse_args(argv)
 

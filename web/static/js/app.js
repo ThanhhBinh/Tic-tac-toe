@@ -173,7 +173,7 @@ async function loadOptions() {
   fillSelect("#ai_type", opts.ai_types);
   fillSelect("#difficulty", opts.difficulties);
   fillSelect("#board_size", opts.board_sizes.map(String));
-  $("#board_size").value = "15";
+  $("#board_size").value = String(opts.board_sizes.includes(15) ? 15 : opts.board_sizes.at(-1));
   $("#mode").value = "Player vs AI";
   updateSetupFields();
 }

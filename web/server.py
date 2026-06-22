@@ -12,7 +12,8 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from config import AIType, Difficulty, GameMode
+from config import AIType, Difficulty, GameMode, BOARD_SIZES, create_caro_env
+from ai.benchmark import run_benchmark
 from web.session import GameSession, SessionSettings, SessionStore
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -31,7 +32,7 @@ class NewGameRequest(BaseModel):
     mode: str = Field(default="Player vs AI", description="Chế độ chơi")
     ai_type: str = Field(default="Hybrid (Minimax + DQN)")
     difficulty: str = Field(default="MEDIUM")
-    board_size: int = Field(default=15, ge=10, le=15)
+    board_size: int = Field(default=15)
     double_end_block_rule: bool = Field(default=True, description="Luật chặn 2 đầu")
     threat_warnings: bool = Field(default=True, description="Cảnh báo sắp thắng")
     ai_aggressive: bool = Field(default=True, description="AI ưu tiên tấn công")
@@ -43,6 +44,16 @@ class MoveRequest(BaseModel):
 
     row: int = Field(ge=0)
     col: int = Field(ge=0)
+
+
+class CompareRequest(BaseModel):
+    """Body chạy benchmark so sánh 3 thuật toán."""
+
+    difficulty: str = Field(default="MEDIUM")
+    board_size: int = Field(default=15)
+    double_end_block_rule: bool = Field(default=True)
+    ai_aggressive: bool = Field(default=True)
+    scenario_set: str = Field(default="basic")
 
 
 def _parse_mode(value: str) -> GameMode:
@@ -70,10 +81,32 @@ def _parse_difficulty(value: str) -> Difficulty:
         raise HTTPException(status_code=400, detail=f"Độ khó không hợp lệ: {value}") from exc
 
 
+def _parse_board_size(value: int) -> int:
+    """Kiểm tra kích thước bàn cờ hợp lệ."""
+    if value not in BOARD_SIZES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Kích thước bàn không hợp lệ: {value}. Chọn một trong {list(BOARD_SIZES)}.",
+        )
+    return value
+
+
 @app.get("/")
 async def index() -> FileResponse:
     """Trang chủ — giao diện game."""
     return FileResponse(STATIC_DIR / "index.html")
+
+
+@app.get("/compare")
+async def compare_page() -> FileResponse:
+    """Trang so sánh Minimax / DQN / Hybrid."""
+    return FileResponse(STATIC_DIR / "compare.html")
+
+
+@app.get("/learn")
+async def learn_page() -> FileResponse:
+    """Dashboard truy vết dữ liệu học DQN."""
+    return FileResponse(STATIC_DIR / "learn.html")
 
 
 @app.get("/api/options")
@@ -83,7 +116,7 @@ async def get_options() -> dict[str, Any]:
         "modes": [m.value for m in GameMode],
         "ai_types": [a.value for a in AIType],
         "difficulties": [d.name for d in Difficulty],
-        "board_sizes": [10, 15],
+        "board_sizes": list(BOARD_SIZES),
     }
 
 
@@ -94,7 +127,7 @@ async def create_game(body: NewGameRequest) -> dict[str, Any]:
         mode=_parse_mode(body.mode),
         ai_type=_parse_ai_type(body.ai_type),
         difficulty=_parse_difficulty(body.difficulty),
-        board_size=body.board_size,
+        board_size=_parse_board_size(body.board_size),
         double_end_block_rule=body.double_end_block_rule,
         threat_warnings=body.threat_warnings,
         ai_aggressive=body.ai_aggressive,
@@ -163,6 +196,87 @@ async def delete_game(session_id: str) -> dict[str, str]:
     """Xoá phiên (giải phóng bộ nhớ)."""
     store.delete(session_id)
     return {"status": "ok"}
+
+
+@app.post("/api/compare/run")
+async def run_compare(body: CompareRequest) -> dict[str, Any]:
+    """Chạy 10 TH benchmark — cả 3 agent trên cùng thế cờ."""
+    from config import TacticalConfig
+
+    try:
+        difficulty = _parse_difficulty(body.difficulty)
+    except HTTPException:
+        raise
+    tactical = TacticalConfig(
+        double_end_block_rule=body.double_end_block_rule,
+        aggressive=body.ai_aggressive,
+        threat_warnings=True,
+    )
+    return run_benchmark(
+        difficulty=difficulty,
+        board_size=_parse_board_size(body.board_size),
+        tactical=tactical,
+        scenario_set=body.scenario_set,
+    )
+
+
+class LearnCompareRequest(BaseModel):
+    """Body so sánh model DQN trước / sau học."""
+
+    board_size: int = Field(default=15)
+    difficulty: str = Field(default="MEDIUM")
+    double_end_block_rule: bool = Field(default=True)
+    ai_aggressive: bool = Field(default=True)
+
+
+@app.get("/api/learn/status")
+async def learn_status(board_size: int = 15) -> dict[str, Any]:
+    """Tổng quan buffer, checkpoint và lần học gần nhất."""
+    from ai.learning_inspector import get_learning_status
+
+    return get_learning_status(_parse_board_size(board_size))
+
+
+@app.get("/api/learn/buffer")
+async def learn_buffer(board_size: int = 15, limit: int = 24) -> dict[str, Any]:
+    """Mẫu transition gần nhất trong replay buffer online."""
+    from ai.learning_inspector import get_buffer_samples
+
+    size = _parse_board_size(board_size)
+    return {
+        "board_size": size,
+        "samples": get_buffer_samples(size, limit=min(max(limit, 1), 100)),
+    }
+
+
+@app.get("/api/learn/history")
+async def learn_history(board_size: int = 15, limit: int = 30) -> dict[str, Any]:
+    """Nhật ký các lần học online."""
+    from ai.learning_inspector import read_learn_log
+
+    size = _parse_board_size(board_size)
+    return {
+        "board_size": size,
+        "events": read_learn_log(size, limit=min(max(limit, 1), 200)),
+    }
+
+
+@app.post("/api/learn/compare")
+async def learn_compare(body: LearnCompareRequest) -> dict[str, Any]:
+    """So sánh model hiện tại vs bản backup trên benchmark + buffer."""
+    from ai.learning_inspector import compare_dqn_before_after
+    from config import TacticalConfig
+
+    tactical = TacticalConfig(
+        double_end_block_rule=body.double_end_block_rule,
+        aggressive=body.ai_aggressive,
+        threat_warnings=True,
+    )
+    return compare_dqn_before_after(
+        board_size=_parse_board_size(body.board_size),
+        difficulty=_parse_difficulty(body.difficulty),
+        tactical=tactical,
+    )
 
 
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")

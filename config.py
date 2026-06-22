@@ -56,8 +56,35 @@ DQN_REWARD_OPEN_THREE: float = 0.12
 DQN_REWARD_STEP: float = -0.005
 
 # Các kích thước bàn cờ cho phép người chơi chọn.
-BOARD_SIZES: tuple[int, ...] = (10, 15)
+BOARD_SIZES: tuple[int, ...] = (3, 5, 7, 10, 15)
 DEFAULT_BOARD_SIZE: int = 15
+
+
+def win_length_for_board(board_size: int) -> int:
+    """Số quân liên tiếp để thắng phù hợp với kích thước bàn.
+
+    Bàn nhỏ (3×3, 5×5) dùng luật ngắn hơn để ván vẫn chơi được.
+    """
+    if board_size <= 3:
+        return 3
+    if board_size <= 5:
+        return board_size
+    return WIN_LENGTH
+
+
+def create_caro_env(
+    board_size: int,
+    *,
+    double_end_block_rule: bool = False,
+) -> "CaroEnv":
+    """Tạo ``CaroEnv`` với ``win_length`` tự động theo kích thước bàn."""
+    from core.caro_env import CaroEnv
+
+    return CaroEnv(
+        size=board_size,
+        win_length=win_length_for_board(board_size),
+        double_end_block_rule=double_end_block_rule,
+    )
 
 
 class Player(IntEnum):
@@ -136,13 +163,30 @@ DQN_DEFAULT_EPISODES: int = 3_000
 DQN_SAVE_EVERY: int = 500
 DQN_LOG_EVERY: int = 50
 DQN_EVAL_EVERY: int = 500
-DQN_EVAL_GAMES: int = 10
+DQN_EVAL_GAMES: int = 50
+# Win rate tối thiểu để ghi checkpoint khi eval (train.py save gate).
+DQN_SAVE_MIN_WIN_RATE_DELTA: float = 0.0
 
 # Học online khi chơi Người vs AI (DQN / Hybrid).
 ONLINE_LEARN_ENABLED: bool = True
-ONLINE_LEARN_GRADIENT_STEPS: int = 32
-# Số mẫu tối thiểu trong buffer để chạy gradient sau một ván (nhỏ hơn train.py).
-ONLINE_LEARN_MIN_SAMPLES: int = 8
+ONLINE_LEARN_GRADIENT_STEPS: int = 12
+ONLINE_LEARN_GRADIENT_STEPS_HIGH: int = 16
+ONLINE_LEARN_GRADIENT_STEPS_LOW: int = 4
+# Số mẫu tối thiểu trong buffer để chạy gradient sau một ván.
+ONLINE_LEARN_MIN_SAMPLES: int = 64
+# Ván AI thắng quá ngắn (human blunder) — chỉ buffer, không train.
+ONLINE_LEARN_MIN_AI_MOVES: int = 6
+# Ván hòa dài mới đáng học (reward cuối = 0).
+ONLINE_LEARN_DRAW_MIN_AI_MOVES: int = 20
+# Credit assignment khi AI thua: nước cuối → kế cuối → thứ 3 từ cuối.
+ONLINE_LOSS_CREDIT_REWARDS: tuple[float, ...] = (-1.0, -0.5, -0.25)
+# Chỉ ghi checkpoint online nếu pass save gate (benchmark / transition / loss).
+ONLINE_SAVE_GATE_ENABLED: bool = True
+# Từ chối lưu nếu loss vượt ratio × trung bình N lần học gần nhất.
+ONLINE_LOSS_SPIKE_RATIO: float = 2.0
+ONLINE_LOSS_HISTORY_SIZE: int = 10
+# Double DQN khi tính target Q (giảm overestimate).
+DQN_USE_DOUBLE_DQN: bool = True
 
 # Hybrid: depth GIỚI HẠN thấp hơn Minimax thuần vì mỗi node lá chạy forward DQN.
 # Expert=3 (KHÔNG dùng 4) — depth 4 + DQN khiến UI treo hàng chục giây/phút.
@@ -169,8 +213,12 @@ HYBRID_CANDIDATE_RADIUS_BY_DIFFICULTY: dict[Difficulty, int] = {
     Difficulty.EXPERT: 3,
 }
 
-# Trộn heuristic + DQN tại node lá (heuristic ổn định, DQN bổ sung khi đã train).
+# Trộn heuristic + DQN khi tinh chỉnh nước đi ở root (sau Minimax).
 HYBRID_LEAF_HEURISTIC_WEIGHT: float = 0.55
+# Số ứng viên top-K ở root để DQN chọn lại (chỉ vài forward, không chạy ở mọi node lá).
+HYBRID_ROOT_REFINE_CANDIDATES: int = 12
+# Chỉ đổi nước minimax nếu điểm trộn cao hơn ít nhất tỷ lệ này (tránh nhiễu DQN).
+HYBRID_ROOT_REFINE_MIN_GAIN: float = 1.02
 
 # Thời gian tối đa chờ AI (giây) trước khi fallback nước đi an toàn.
 AI_MOVE_TIMEOUT_SEC: float = 45.0
@@ -179,12 +227,27 @@ def dqn_model_path(board_size: int) -> Path:
     """Đường dẫn file checkpoint DQN theo kích thước bàn cờ.
 
     Args:
-        board_size: Cạnh bàn cờ (10 hoặc 15).
+        board_size: Cạnh bàn cờ (3, 5, 7, 10 hoặc 15).
 
     Returns:
         Path tới file ``.pth`` tương ứng.
     """
     return MODELS_DIR / f"dqn_{board_size}.pth"
+
+
+def dqn_model_backup_path(board_size: int) -> Path:
+    """Bản sao checkpoint trước lần học online gần nhất (để so sánh)."""
+    return MODELS_DIR / f"dqn_{board_size}.backup.pth"
+
+
+def dqn_model_best_path(board_size: int) -> Path:
+    """Checkpoint tốt nhất theo eval win rate (train.py curriculum)."""
+    return MODELS_DIR / f"dqn_{board_size}.best.pth"
+
+
+def learn_log_path(board_size: int) -> Path:
+    """Nhật ký JSONL các lần học online theo kích thước bàn."""
+    return MODELS_DIR / f"learn_log_{board_size}.jsonl"
 
 
 # ==========================================================================

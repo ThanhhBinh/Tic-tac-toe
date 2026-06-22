@@ -298,6 +298,14 @@ html, body {
 .btn-ghost:hover { color: var(--text); background: var(--surface); }
 
 .btn-lg { padding: 14px 24px; font-size: 1.05rem; }
+
+.compare-link {
+  text-align: center;
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
 .btn-sm { padding: 6px 14px; font-size: 0.85rem; }
 .btn-icon {
   width: 40px;

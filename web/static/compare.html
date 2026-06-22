@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>So sánh AI — Minimax · DQN · Hybrid</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/static/css/style.css" />
+    <link rel="stylesheet" href="/static/css/compare.css" />
+    <script>
+      (function () {
+        var t = localStorage.getItem("caro-theme") || "dark";
+        document.documentElement.setAttribute("data-theme", t);
+      })();
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  </head>
+  <body>
+    <div class="bg-mesh" aria-hidden="true"></div>
+
+    <button
+      id="theme-toggle"
+      class="theme-toggle"
+      type="button"
+      aria-label="Đổi giao diện sáng/tối"
+      title="Sáng / Tối"
+    >
+      <span class="theme-icon theme-icon-dark">☀️</span>
+      <span class="theme-icon theme-icon-light">🌙</span>
+    </button>
+
+    <div class="compare-page">
+      <header class="compare-header glass">
+        <div class="compare-header-left">
+          <a href="/" class="btn btn-ghost btn-sm">← Về game</a>
+          <a href="/learn" class="btn btn-ghost btn-sm">🧠 Học DQN</a>
+          <div>
+            <h1>So sánh 3 thuật toán AI</h1>
+            <p class="compare-subtitle" id="compare-subtitle">
+              Minimax · DQN · Hybrid — cùng 10 tình huống thử nghiệm
+            </p>
+          </div>
+        </div>
+        <form id="compare-form" class="compare-controls">
+          <label class="field field-inline">
+            <span>Bộ TH</span>
+            <select id="scenario_set" name="scenario_set">
+              <option value="basic" selected>
+                Tiêu chuẩn (3 chiến thuật + 7 chiến lược)
+              </option>
+              <option value="advanced">
+                Nâng cao (10 TH chiến lược phức tạp)
+              </option>
+              <option value="all">Tất cả (20 TH)</option>
+            </select>
+          </label>
+          <label class="field field-inline">
+            <span>Độ khó</span>
+            <select id="difficulty" name="difficulty">
+              <option value="EASY">EASY</option>
+              <option value="MEDIUM" selected>MEDIUM</option>
+              <option value="HARD">HARD</option>
+              <option value="EXPERT">EXPERT</option>
+            </select>
+          </label>
+          <label class="field field-inline">
+            <span>Kích thước bàn</span>
+            <select id="board_size" name="board_size"></select>
+          </label>
+          <button type="submit" class="btn btn-primary" id="btn-run">
+            Chạy benchmark
+          </button>
+        </form>
+      </header>
+
+      <div id="loading-panel" class="compare-loading glass hidden">
+        <div class="spinner"></div>
+        <p id="loading-msg">Đang chạy benchmark…</p>
+        <small id="loading-hint"
+          >Ước tính 5–15 giây (EASY/MEDIUM) — HARD/EXPERT có thể lâu hơn</small
+        >
+      </div>
+
+      <div
+        id="error-panel"
+        class="compare-error glass hidden"
+        role="alert"
+      ></div>
+
+      <main id="results-panel" class="compare-results hidden">
+        <section class="winner-banner glass" id="winner-banner">
+          <span class="winner-icon">🏆</span>
+          <div>
+            <h2 id="winner-title">—</h2>
+            <p id="winner-headline">—</p>
+          </div>
+        </section>
+
+        <section class="charts-grid">
+          <div class="chart-card glass">
+            <h3>Điểm tổng hợp</h3>
+            <canvas id="chart-composite" height="220"></canvas>
+          </div>
+          <div class="chart-card glass">
+            <h3>Đúng nước chiến thuật</h3>
+            <canvas id="chart-tactical" height="220"></canvas>
+          </div>
+          <div class="chart-card glass">
+            <h3>Thời gian suy nghĩ (ms/nước)</h3>
+            <canvas id="chart-time" height="220"></canvas>
+          </div>
+          <div class="chart-card glass">
+            <h3>Radar năng lực</h3>
+            <canvas id="chart-radar" height="220"></canvas>
+          </div>
+        </section>
+
+        <section class="summary-cards" id="summary-cards"></section>
+
+        <section class="eval-section glass">
+          <h3>Đánh giá chi tiết</h3>
+          <ul id="eval-bullets" class="eval-bullets"></ul>
+          <div id="eval-agents" class="eval-agents"></div>
+        </section>
+
+        <section class="detail-section glass">
+          <div class="detail-header">
+            <h3 id="scenario-section-title">Tình huống thử nghiệm</h3>
+            <p id="scenario-section-desc">
+              Cùng thế cờ — so sánh nước đi, thời gian và xếp hạng chất lượng
+            </p>
+          </div>
+          <div id="scenario-list" class="scenario-list"></div>
+        </section>
+      </main>
+    </div>
+
+    <script src="/static/js/compare.js"></script>
+  </body>
+</html>

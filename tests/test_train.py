@@ -36,6 +36,8 @@ def test_run_training_vong_ngan(tmp_path: Path) -> None:
         seed=0,
         resume=None,
         output=str(out),
+        no_save_gate=False,
+        no_progress=True,
     )
     saved = run_training(args)
     assert saved.exists()

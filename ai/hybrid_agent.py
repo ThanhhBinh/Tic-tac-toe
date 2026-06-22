@@ -5,6 +5,11 @@
 Ý tưởng: giữ tìm kiếm có giới hạn độ sâu (depth 2–3) của Minimax để nhìn xa
 cục bộ, kết hợp heuristic pattern-based (ổn định) với Q-value DQN khi đã train.
 
+Chiến lược (khi đã nạp DQN):
+    1. Minimax + Alpha-Beta với **heuristic thuần** ở node lá — chất lượng ≥ Minimax.
+    2. **Tinh chỉnh ở root**: DQN trộn với heuristic trên top-K nước ứng viên.
+    → Tránh gọi DQN hàng trăm lần mỗi lượt (chậm, nhiễu) mà không đổi nước đi.
+
 LƯU Ý: Nếu chưa có checkpoint DQN, node lá dùng THUẦN heuristic — mạng ngẫu nhiên
 sẽ làm AI yếu hơn Minimax thuần nếu không blend.
 """
@@ -15,13 +20,15 @@ import numpy as np
 
 from ai.board_encoder import legal_action_mask
 from ai.dqn_agent import DQNAgent
-from ai.heuristic import evaluate_position
+from ai.heuristic import evaluate_position, find_tactical_move
 from ai.minimax_agent import MinimaxAgent
 from config import (
     HYBRID_CANDIDATE_RADIUS_BY_DIFFICULTY,
     HYBRID_DEPTH_BY_DIFFICULTY,
     HYBRID_LEAF_HEURISTIC_WEIGHT,
     HYBRID_MAX_BRANCH_BY_DIFFICULTY,
+    HYBRID_ROOT_REFINE_CANDIDATES,
+    HYBRID_ROOT_REFINE_MIN_GAIN,
     Difficulty,
     Player,
     TacticalConfig,
@@ -31,7 +38,7 @@ from core.constants import Move
 
 
 class HybridAgent(MinimaxAgent):
-    """Minimax + Alpha-Beta với lượng giá lá heuristic + DQN (có cache)."""
+    """Minimax + Alpha-Beta; DQN tinh chỉnh ở root khi đã train."""
 
     name = "Hybrid"
 
@@ -44,6 +51,7 @@ class HybridAgent(MinimaxAgent):
         cache_size: int = 8_192,
         max_branch: int | None = None,
         leaf_heuristic_weight: float = HYBRID_LEAF_HEURISTIC_WEIGHT,
+        root_refine_candidates: int = HYBRID_ROOT_REFINE_CANDIDATES,
         tactical_config: TacticalConfig | None = None,
     ) -> None:
         """Khởi tạo Hybrid: Minimax depth cố định + mạng DQN suy luận.
@@ -53,9 +61,10 @@ class HybridAgent(MinimaxAgent):
             board_size: Cạnh bàn cờ (phải khớp checkpoint DQN).
             candidate_radius: Bán kính sinh nước ứng viên.
             device: Thiết bị PyTorch cho DQN ('cpu' / 'cuda' / None).
-            cache_size: Số lượng giá trị DQN cache tối đa tại node lá.
+            cache_size: Dự phòng (cache node lá không còn dùng khi refine root).
             max_branch: Giới hạn nhánh mở rộng mỗi node (None = không giới hạn).
-            leaf_heuristic_weight: Trọng số heuristic khi trộn với DQN (0–1).
+            leaf_heuristic_weight: Trọng số heuristic khi trộn với DQN ở root.
+            root_refine_candidates: Số nước top-K DQN xem xét sau Minimax.
         """
         super().__init__(
             depth=depth,
@@ -68,6 +77,8 @@ class HybridAgent(MinimaxAgent):
         self._eval_cache: dict[tuple[bytes, int, int], float] = {}
         self._cache_size = cache_size
         self._leaf_heuristic_weight = leaf_heuristic_weight
+        self._root_refine_candidates = max(1, root_refine_candidates)
+        self._heuristic_only_search = False
 
         if self.dqn._model_loaded:
             dqn_tag = "DQN đã nạp"
@@ -99,19 +110,30 @@ class HybridAgent(MinimaxAgent):
             return dqn_score * scale
         return dqn_score
 
-    def _evaluate_leaf(self, env: CaroEnv, ai_player: Player) -> float:
-        """Đánh giá node lá: heuristic (+ DQN nếu đã train).
+    def _blended_score(self, env: CaroEnv, ai_player: Player) -> float:
+        """Trộn heuristic + DQN cho một thế cờ (dùng ở root refine)."""
+        heuristic = self._heuristic_score(env, ai_player)
+        if not self.dqn._model_loaded:
+            return heuristic
+        dqn = self._scale_dqn_to_heuristic(
+            self._dqn_raw_score(env, ai_player), heuristic
+        )
+        w = self._leaf_heuristic_weight
+        return w * heuristic + (1.0 - w) * dqn
 
-        Khi chưa có model DQN, chỉ dùng heuristic — tránh mạng ngẫu nhiên phá search.
+    def _evaluate_leaf(self, env: CaroEnv, ai_player: Player) -> float:
+        """Node lá: heuristic thuần khi search (đảm bảo ≥ Minimax thuần).
+
+        DQN chỉ tham gia ở bước tinh chỉnh root sau khi Minimax chọn nước cơ sở.
         """
         if env.done:
             return self._heuristic_score(env, ai_player)
 
+        if not self.dqn._model_loaded or self._heuristic_only_search:
+            return self._heuristic_score(env, ai_player)
+
+        # Legacy path: trộn tại lá (chỉ khi gọi trực tiếp, không qua get_move).
         heuristic = self._heuristic_score(env, ai_player)
-
-        if not self.dqn._model_loaded:
-            return heuristic
-
         cache_key = (env.board.tobytes(), int(env.current_player), int(ai_player))
         if cache_key in self._eval_cache:
             return self._eval_cache[cache_key]
@@ -127,10 +149,58 @@ class HybridAgent(MinimaxAgent):
         self._eval_cache[cache_key] = score
         return score
 
+    def _refine_root_with_dqn(self, env: CaroEnv, minimax_move: Move) -> Move:
+        """Chọn lại trong top-K nước nếu DQN+heuristic rõ ràng tốt hơn Minimax."""
+        player = env.current_player
+        ordered = self._ordered_moves(env, player)
+        k = self._root_refine_candidates
+        candidates = ordered[:k]
+        if minimax_move not in candidates:
+            candidates = [minimax_move] + [m for m in candidates if m != minimax_move][: k - 1]
+
+        best_move = minimax_move
+        best_score = float("-inf")
+        minimax_score: float | None = None
+
+        for move in candidates:
+            sim = env.clone()
+            sim.step(move)
+            blended = self._blended_score(sim, player)
+            if move == minimax_move:
+                minimax_score = blended
+            if blended > best_score:
+                best_score = blended
+                best_move = move
+
+        if (
+            best_move != minimax_move
+            and minimax_score is not None
+            and best_score >= minimax_score * HYBRID_ROOT_REFINE_MIN_GAIN
+        ):
+            return best_move
+        return minimax_move
+
     def get_move(self, env: CaroEnv) -> Move:
-        """Xóa cache DQN trước mỗi lượt để tránh stale state."""
+        """Minimax heuristic thuần, rồi tinh chỉnh bằng DQN ở root nếu có model."""
         self._eval_cache.clear()
-        return super().get_move(env)
+        player = env.current_player
+
+        tactical = find_tactical_move(
+            env,
+            player,
+            radius=self.candidate_radius,
+            config=self.tactical_config,
+        )
+        if tactical is not None:
+            return tactical
+
+        self._heuristic_only_search = True
+        minimax_move = super().get_move(env)
+        self._heuristic_only_search = False
+
+        if not self.dqn._model_loaded:
+            return minimax_move
+        return self._refine_root_with_dqn(env, minimax_move)
 
     def get_win_probability(
         self, env: CaroEnv, for_player: Player | None = None
@@ -172,9 +242,12 @@ class HybridAgent(MinimaxAgent):
             max_branch=max_branch,
             tactical_config=tactical_config,
         )
-        # Chưa train DQN → node lá chỉ heuristic, không tốn forward mạng.
-        # Tăng depth lên bằng Minimax thuần (Expert=4) để không yếu hơn đáng kể.
-        if not agent.dqn._model_loaded:
+        # Đã train DQN: duyệt đủ nhánh như Minimax thuần (không cắt top-8).
+        if agent.dqn._model_loaded:
+            agent.max_branch = None
+            agent.name = f"Hybrid (depth={agent.depth}, DQN đã nạp)"
+        else:
+            # Chưa train DQN → node lá chỉ heuristic, tăng depth bằng Minimax thuần.
             agent.depth = max(agent.depth, int(difficulty))
             agent.name = (
                 f"Hybrid (depth={agent.depth}, heuristic — chưa train DQN)"

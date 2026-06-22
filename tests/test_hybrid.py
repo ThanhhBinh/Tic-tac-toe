@@ -6,12 +6,11 @@ from __future__ import annotations
 
 import numpy as np
 
-from config import Difficulty, Player
-from core.caro_env import CaroEnv
 from ai.factory import create_agent
 from ai.hybrid_agent import HybridAgent
 from ai.minimax_agent import MinimaxAgent
-from config import AIType
+from config import AIType, Difficulty, HYBRID_DEPTH_BY_DIFFICULTY, Player
+from core.caro_env import CaroEnv
 
 
 def test_hybrid_tra_ve_nuoc_hop_le() -> None:
@@ -38,8 +37,8 @@ def test_hybrid_ke_thua_minimax_tactical() -> None:
     assert move in {(3, 2), (3, 7)}
 
 
-def test_hybrid_dung_dqn_o_node_la() -> None:
-    """Node lá gọi DQN khi model đã nạp."""
+def test_hybrid_dung_dqn_khi_refine_root() -> None:
+    """Khi model đã nạp, DQN được gọi ở bước tinh chỉnh root."""
     env = CaroEnv(size=10)
     agent = HybridAgent(depth=1, board_size=10)
     agent.dqn._model_loaded = True
@@ -80,10 +79,13 @@ def test_factory_tao_hybrid() -> None:
 
 
 def test_hybrid_expert_depth_khi_chua_dqn() -> None:
-    """Chưa train DQN → Expert depth=4 (bằng Minimax); có DQN giữ depth=3."""
+    """Có DQN → depth map Hybrid; chưa DQN → depth bằng Minimax Expert."""
     agent = HybridAgent.from_difficulty(Difficulty.EXPERT, board_size=10)
-    assert not agent.dqn._model_loaded
-    assert agent.depth == 4
+    if agent.dqn._model_loaded:
+        assert agent.depth == HYBRID_DEPTH_BY_DIFFICULTY[Difficulty.EXPERT]
+        assert agent.max_branch is None
+    else:
+        assert agent.depth == int(Difficulty.EXPERT)
 
 
 def test_hybrid_leaf_fallback_khi_q_khong_hop_le() -> None:
@@ -103,3 +105,23 @@ def test_hybrid_khac_minimax_thuan_tren_cung_depth() -> None:
     minimax = MinimaxAgent(depth=2)
     assert hybrid.get_move(env.clone()).__class__ is tuple
     assert minimax.get_move(env.clone()).__class__ is tuple
+
+
+def test_hybrid_dqn_loaded_khong_gioi_han_nhanh() -> None:
+    """Khi đã nạp DQN, Hybrid duyệt đủ nhánh như Minimax (max_branch=None)."""
+    agent = HybridAgent.from_difficulty(Difficulty.MEDIUM, board_size=15)
+    if agent.dqn._model_loaded:
+        assert agent.max_branch is None
+
+
+def test_hybrid_search_khop_minimax_khi_co_dqn() -> None:
+    """Search heuristic thuần → cùng nước Minimax trên bàn trống (trước refine)."""
+    env = CaroEnv(size=10)
+    hybrid = HybridAgent.from_difficulty(Difficulty.MEDIUM, board_size=10)
+    minimax = MinimaxAgent.from_difficulty(Difficulty.MEDIUM)
+    if not hybrid.dqn._model_loaded:
+        return
+    hybrid._heuristic_only_search = True
+    h_move = super(HybridAgent, hybrid).get_move(env.clone())
+    m_move = minimax.get_move(env.clone())
+    assert h_move == m_move

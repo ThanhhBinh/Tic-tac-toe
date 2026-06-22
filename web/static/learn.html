@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Truy vết học DQN — AI Cờ Caro</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/css/style.css" />
+  <link rel="stylesheet" href="/static/css/compare.css" />
+  <link rel="stylesheet" href="/static/css/learn.css" />
+  <script>
+    (function () {
+      var t = localStorage.getItem("caro-theme") || "dark";
+      document.documentElement.setAttribute("data-theme", t);
+    })();
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <div class="bg-mesh" aria-hidden="true"></div>
+
+  <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Đổi giao diện sáng/tối" title="Sáng / Tối">
+    <span class="theme-icon theme-icon-dark">☀️</span>
+    <span class="theme-icon theme-icon-light">🌙</span>
+  </button>
+
+  <div class="compare-page learn-page">
+    <header class="compare-header glass">
+      <div class="compare-header-left">
+        <a href="/" class="btn btn-ghost btn-sm">← Về game</a>
+        <div>
+          <h1>Truy vết học DQN</h1>
+          <p class="compare-subtitle">Xem dữ liệu đã học · cách lấy mẫu · so sánh trước / sau cập nhật model</p>
+        </div>
+      </div>
+      <form id="learn-form" class="compare-controls">
+        <label class="field field-inline">
+          <span>Bàn cờ</span>
+          <select id="board_size" name="board_size"></select>
+        </label>
+        <label class="field field-inline">
+          <span>Độ khó (benchmark)</span>
+          <select id="difficulty" name="difficulty">
+            <option value="EASY">EASY</option>
+            <option value="MEDIUM" selected>MEDIUM</option>
+            <option value="HARD">HARD</option>
+            <option value="EXPERT">EXPERT</option>
+          </select>
+        </label>
+        <button type="button" class="btn btn-ghost" id="btn-refresh">Làm mới</button>
+        <button type="submit" class="btn btn-primary" id="btn-compare">So sánh Trước / Sau</button>
+      </form>
+    </header>
+
+    <div id="error-panel" class="compare-error glass hidden" role="alert"></div>
+    <div id="loading-panel" class="compare-loading glass hidden">
+      <div class="spinner"></div>
+      <p>Đang so sánh model hiện tại với bản backup…</p>
+    </div>
+
+    <section class="learn-flow glass">
+      <h2>Luồng học &amp; áp dụng</h2>
+      <ol class="learn-pipeline">
+        <li><strong>Ghi nhận</strong> — Mỗi nước AI trong ván PvA → <code>Transition</code> (bàn cờ, nước đi, reward)</li>
+        <li><strong>Học</strong> — Hết ván: đưa vào replay buffer → 32 bước gradient (Bellman)</li>
+        <li><strong>Cải tiến</strong> — Sao lưu model cũ → lưu <code>.pth</code> mới → nạp lại agent khi chơi</li>
+      </ol>
+    </section>
+
+    <section id="status-section" class="learn-status-grid"></section>
+
+    <section class="learn-section glass">
+      <div class="learn-section-head">
+        <h2>Lịch sử học online</h2>
+        <p>Các ván PvA đã đưa dữ liệu vào buffer (mới nhất trước)</p>
+      </div>
+      <div id="history-list" class="history-list"></div>
+    </section>
+
+    <section class="learn-section glass">
+      <div class="learn-section-head">
+        <h2>Dữ liệu trong replay buffer</h2>
+        <p>Mẫu kinh nghiệm gần nhất — đây là “data” DQN lấy ra để train mini-batch</p>
+      </div>
+      <div id="buffer-list" class="buffer-grid"></div>
+    </section>
+
+    <section id="compare-section" class="learn-section glass hidden">
+      <div class="learn-section-head">
+        <h2>So sánh model Trước / Sau</h2>
+        <p id="compare-headline" class="compare-headline">—</p>
+      </div>
+
+      <div class="compare-score-row" id="compare-scores"></div>
+
+      <div class="chart-card glass learn-chart-wrap">
+        <h3>Đúng nước chiến thuật (10 TH benchmark)</h3>
+        <canvas id="chart-learn-compare" height="180"></canvas>
+      </div>
+
+      <div id="scenario-compare-list" class="scenario-list"></div>
+
+      <div class="learn-section-head" style="margin-top: 24px;">
+        <h3>Q-value trên dữ liệu buffer (nước AI đã đi)</h3>
+        <p>So sánh Q tại ô AI chọn — model mới có “hạ” nước sai sau khi thua không?</p>
+      </div>
+      <div id="buffer-compare-list" class="buffer-compare-list"></div>
+    </section>
+  </div>
+
+  <script src="/static/js/learn.js"></script>
+</body>
+</html>

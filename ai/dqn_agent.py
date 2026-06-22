@@ -179,6 +179,8 @@ class DQNAgent(Agent):
 
     def _predict_q_numpy(self, env: CaroEnv, player: Player) -> np.ndarray:
         """Chạy forward pass và trả Q-value dạng numpy 1D."""
+        if env.size != self.board_size:
+            return np.zeros(env.size * env.size, dtype=np.float32)
         state = encode_board(env.board, player)
         tensor = torch.from_numpy(state).unsqueeze(0).to(self.device)
         self.network.eval()

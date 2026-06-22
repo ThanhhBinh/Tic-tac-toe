@@ -35,6 +35,7 @@ from config import (
     DQN_REWARD_STEP,
     DQN_TARGET_SYNC_EVERY,
     DQN_TRAIN_EVERY,
+    DQN_USE_DOUBLE_DQN,
     Player,
     TacticalConfig,
     dqn_model_path,
@@ -260,7 +261,15 @@ class DQNTrainer:
         q_values = self.policy_net(states).gather(1, actions.unsqueeze(1)).squeeze(1)
 
         with torch.no_grad():
-            next_q = self.target_net(next_states).max(dim=1).values
+            if DQN_USE_DOUBLE_DQN:
+                next_actions = self.policy_net(next_states).argmax(dim=1)
+                next_q = (
+                    self.target_net(next_states)
+                    .gather(1, next_actions.unsqueeze(1))
+                    .squeeze(1)
+                )
+            else:
+                next_q = self.target_net(next_states).max(dim=1).values
             targets = rewards + self.gamma * next_q * (1.0 - dones)
 
         loss = self.loss_fn(q_values, targets)

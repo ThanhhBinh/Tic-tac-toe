@@ -77,6 +77,7 @@ Nếu có sai sót, chúng em xin hoàn toàn chịu trách nhiệm.
 | 1.2 | Mục tiêu nghiên cứu | |
 | 1.3 | Phạm vi đồ án | |
 | 1.4 | Phương pháp thực hiện | |
+| 1.5 | **Chiến lược kết hợp Minimax và DQN** | |
 | **2** | **Cơ sở lý thuyết** | |
 | 2.1 | Trò chơi hai người và cây trò chơi | |
 | 2.2 | Thuật toán Minimax | |
@@ -94,6 +95,10 @@ Nếu có sai sót, chúng em xin hoàn toàn chịu trách nhiệm.
 | 4.3 | Module `ai/` — Minimax Agent | |
 | 4.4 | Module `ai/` — DQN Agent | |
 | 4.5 | Module `ai/` — huấn luyện DQN | |
+| 4.5.5 | Ba nguồn dữ liệu huấn luyện | |
+| 4.5.6 | Cơ chế học: DQN học cái gì? | |
+| 4.5.7 | Học online từ ván Người vs AI | |
+| 4.5.8 | Áp dụng kiến thức đã học khi chơi | |
 | 4.6 | Giao diện người dùng | |
 | **5** | **Kết hợp hai thuật toán: Hybrid Agent** | |
 | 5.1 | Động lực và ý tưởng | |
@@ -109,6 +114,53 @@ Nếu có sai sót, chúng em xin hoàn toàn chịu trách nhiệm.
 | **7** | **Kết luận và hướng phát triển** | |
 | | Tài liệu tham khảo | |
 | | Phụ lục | |
+| | **Tóm tắt — Kết hợp hai thuật toán** | |
+
+---
+
+## TÓM TẮT ĐỒ ÁN — KẾT HỢP HAI THUẬT TOÁN
+
+> **Đây là nội dung trọng tâm của đồ án.** Báo cáo chi tiết ở **Chương 5**; phần này tóm tắt ngắn để đọc nhanh.
+
+### Hai thuật toán em kết hợp là gì?
+
+| # | Thuật toán | Nhóm AI | Vai trò trong hệ thống |
+|---|------------|---------|------------------------|
+| **1** | **Minimax + Alpha-Beta Pruning** | Tìm kiếm đối kháng | Duyệt cây trò chơi, nhìn trước 2–4 nước, chọn nước tối ưu theo minimax |
+| **2** | **Deep Q-Network (DQN)** | Học tăng cường | Mạng CNN học Q-value, đánh giá “thế cờ này tốt/xấu thế nào” |
+
+**Lưu ý:** Minimax và Alpha-Beta **không phải hai thuật toán riêng** — Alpha-Beta là kỹ thuật **cắt tỉa** giúp Minimax chạy nhanh hơn mà **không đổi kết quả**. Hai hướng tiếp cận thực sự khác nhau là **(Minimax + Alpha-Beta)** và **(DQN)**.
+
+### Cách kết hợp: Hybrid Agent (`HybridAgent`)
+
+Thay vì chạy Minimax **hoặ** DQN riêng lẻ, em ghép chúng trong **một agent duy nhất**:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  HYBRID AGENT = Minimax (khung tìm kiếm) + DQN (đánh giá lá) │
+├─────────────────────────────────────────────────────────────┤
+│  Bước 1: Luật chiến thuật — thắng ngay / chặn thua ngay     │
+│  Bước 2: Minimax + Alpha-Beta duyệt cây (depth 2–3)         │
+│  Bước 3: Tại mỗi NODE LÁ (depth = 0):                       │
+│          score = 55% × heuristic + 45% × Q-value (DQN)      │
+│  Bước 4: Alpha-Beta truyền điểm ngược → chọn nước tốt nhất   │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Tại sao kết hợp theo cách này?**
+
+- **Minimax** giúp AI **nghĩ về phản ứng đối thủ** (nhìn xa vài nước) — DQN thuần không làm được tốt.
+- **DQN** giúp **đánh giá thế cờ phức tạp** ở điểm dừng tìm kiếm — heuristic viết tay khó cover hết mẫu.
+- **Heuristic (55%)** giữ AI **ổn định** khi DQN chưa train hoặc dự đoán sai.
+
+**Code thực tế** (`ai/hybrid_agent.py`): class `HybridAgent` **kế thừa** `MinimaxAgent`, chỉ **ghi đè** hàm `_evaluate_leaf()` — không viết lại toàn bộ Minimax.
+
+```python
+# Công thức trộn tại node lá (rút gọn từ hybrid_agent.py)
+score = 0.55 * heuristic + 0.45 * dqn_scaled
+```
+
+**Fallback:** Nếu chưa có file `models/dqn_15.pth` → Hybrid tự chuyển về **Minimax thuần** (chỉ heuristic), không dùng mạng ngẫu nhiên.
 
 ---
 
@@ -152,7 +204,7 @@ Xây dựng hệ thống AI chơi Cờ Caro hoàn chỉnh, ứng dụng đồng 
 - Ba loại AI: Minimax, DQN, Hybrid.
 - Bốn mức độ khó: Dễ / Trung bình / Khó / Chuyên gia.
 - Chế độ chơi: Người vs Người, Người vs AI, AI vs AI.
-- Huấn luyện DQN: self-play và đấu với Minimax.
+- Huấn luyện DQN: self-play, đấu với Minimax, và học online từ ván Người vs AI.
 
 **Ngoài phạm vi** (để hướng phát triển sau):
 
@@ -192,6 +244,26 @@ Công cụ sử dụng:
 | Pygame | Giao diện desktop |
 | pytest | Unit test |
 | ruff + mypy | Lint và kiểm tra kiểu |
+
+## 1.5. Chiến lược kết hợp Minimax và DQN (tóm tắt sớm)
+
+Nhiều báo cáo mẫu chỉ trình bày **Minimax + Alpha-Beta** rồi dừng. Đồ án của em có **bước thứ ba** — **Hybrid Agent** — là phần **kết hợp thực sự** giữa hai hướng tiếp cận AI:
+
+| Thành phần | Lấy từ đâu | Làm gì trong Hybrid |
+|------------|------------|---------------------|
+| Cây tìm kiếm | Minimax + Alpha-Beta | Duyệt nước ứng viên, tính phản ứng đối thủ |
+| Hàm lượng giá lá | Heuristic pattern | 55% trọng số — ổn định, không cần train |
+| Hàm lượng giá lá | DQN (CNN) | 45% trọng số — học từ kinh nghiệm ván chơi |
+| Luật tức thì | `find_tactical_move()` | Chạy **trước** cả Minimax lẫn DQN |
+
+**Luồng ra quyết định một lượt của Hybrid:**
+
+1. Có nước thắng/chặn thua ngay? → Đánh luôn (không cần search).
+2. Không → Minimax Alpha-Beta depth 2–3 trên nước ứng viên.
+3. Mỗi khi search chạm **node lá** → gọi `_evaluate_leaf()`: trộn heuristic + Q-value DQN.
+4. Trả về nước có minimax value cao nhất.
+
+Chi tiết công thức, sơ đồ cây, ví dụ số và code: **Chương 5**.
 
 ---
 
@@ -404,7 +476,8 @@ Phần thưởng âm nhỏ mỗi nước khuyến khích AI **thắng nhanh** th
 | F05 | Chế độ chơi | PvP, PvAI, AIvAI |
 | F06 | Cài đặt luật | Chặn 2 đầu, chế độ tấn công AI |
 | F07 | Huấn luyện DQN | CLI `train.py`, lưu checkpoint |
-| F08 | HUD | Xác suất thắng ước lượng, thông tin lượt |
+| F08 | Học online (PvA) | AI cập nhật model sau ván thua/thắng với người chơi |
+| F09 | HUD | Xác suất thắng ước lượng, thông tin lượt |
 
 ### Yêu cầu phi chức năng
 
@@ -426,6 +499,7 @@ Phần thưởng âm nhỏ mỗi nước khuyến khích AI **thắng nhanh** th
 │                      AI LAYER                             │
 │  factory.py → MinimaxAgent | DQNAgent | HybridAgent      │
 │  heuristic.py │ board_encoder.py │ dqn_trainer.py        │
+│  online_learner.py (học từ ván PvA)                       │
 ├──────────────────────────────────────────────────────────┤
 │                      CORE LAYER                           │
 │              CaroEnv │ constants │ config.py              │
@@ -513,6 +587,7 @@ DoAn/
 │   ├── board_encoder.py     # Mã hoá tensor
 │   ├── dqn_agent.py         # Suy luận DQN
 │   ├── dqn_trainer.py       # Vòng lặp train
+│   ├── online_learner.py    # Học online từ ván Người vs AI
 │   ├── replay_buffer.py     # Experience replay
 │   ├── hybrid_agent.py      # Kết hợp Minimax + DQN
 │   ├── factory.py           # Tạo agent
@@ -701,7 +776,167 @@ Em train chủ yếu mode **vs Minimax** vì DQN có đối thủ ổn định �
 python train.py --board-size 15 --episodes 3000
 python train.py --mode minimax --opponent-depth 2 --episodes 800
 python train.py --resume models/dqn_15.pth --episodes 500
+python scripts/auto_train.py   # tự train nếu chưa có models/dqn_{size}.pth
 ```
+
+### 4.5.5. Ba nguồn dữ liệu huấn luyện
+
+Em tổ chức pipeline DQN theo **ba nguồn kinh nghiệm** độc lập, cùng định dạng `Transition` nhưng khác cách thu thập:
+
+| # | Nguồn | Module / lệnh | Khi nào chạy |
+|---|--------|---------------|--------------|
+| 1 | **Self-play** | `train.py --mode selfplay` | X và O cùng policy + ε-greedy, tự sinh ván |
+| 2 | **Đấu Minimax** | `train.py --mode minimax` | DQN (X) học từ đối thủ Minimax cố định (O) |
+| 3 | **Học từ người chơi** | `ai/online_learner.py` | Sau mỗi ván PvA (chế độ DQN / Hybrid) |
+
+Ba nguồn đều ghi vào **replay buffer** và dùng chung công thức Bellman (mục 4.5.2), nhưng **hai buffer vật lý khác nhau**:
+
+- **Buffer offline** (`DQNTrainer` trong `train.py`): train hàng loạt, tối thiểu 256 mẫu mới gradient.
+- **Buffer online** (`OnlineLearner`, singleton theo `board_size`): tích lũy qua nhiều ván PvA, tối thiểu 8 mẫu mới gradient.
+
+Cả hai cùng **ghi đè** file checkpoint `models/dqn_{size}.pth` — đây là cầu nối giữa train offline và học online.
+
+**Lưu ý:** Ba kênh tensor `(3, H, W)` trong `Transition.state` là **mã hoá bàn cờ** (quân ta / đối / trống), **không phải** “ba nguồn dữ liệu” ở trên.
+
+### 4.5.6. Cơ chế học: DQN học cái gì?
+
+DQN **không ghi nhớ từng ván** như bộ nhớ ngắn hạn. Nó học một **hàm đánh giá**:
+
+> Với bàn cờ hiện tại, nếu đặt quân vào ô *a* thì kỳ vọng thắng/thua (tổng phần thưởng tương lai) là bao nhiêu?
+
+Hàm đó được mạng CNN (`DQNNetwork`) xấp xỉ: đầu vào tensor `(3, H, W)`, đầu ra vector Q dài `H×W` — **mỗi ô một giá trị Q**. Q càng cao → nước đi càng “đáng” theo kinh nghiệm đã train.
+
+**Một kinh nghiệm (Transition) gồm 5 trường:**
+
+| Trường | Ý nghĩa |
+|--------|---------|
+| `state` | Bàn cờ **trước** nước đi (góc nhìn người vừa đi) |
+| `action` | Ô được chọn (`row * size + col`) |
+| `reward` | Phần thưởng ngay sau nước đi |
+| `next_state` | Bàn cờ **sau** nước đi (góc nhìn người sắp đi) |
+| `done` | Ván đã kết thúc chưa |
+
+**Một bước gradient** (`dqn_trainer._optimize`) làm việc sau:
+
+1. Lấy ngẫu nhiên mini-batch từ buffer.
+2. Mạng **policy** dự đoán Q cho hành động đã thực hiện: `q_values`.
+3. Mạng **target** (bản sao, cập nhật chậm) tính mục tiêu Bellman:
+
+   `targets = reward + γ × max Q(s') × (1 − done)` với γ = 0.99.
+
+4. Giảm sai số Huber giữa `q_values` và `targets` → chỉnh trọng số CNN.
+
+**Ví dụ trực quan:** Khi người chơi thắng AI, nước AI **cuối cùng** nhận `reward = −1.0`. Mạng được “dạy” rằng tại trạng thái trước nước đó, hành động vừa chọn có giá trị kỳ vọng rất thấp — lần sau gặp thế cờ tương tự, Q của ô đó sẽ giảm so với các ô khác.
+
+### 4.5.7. Học online từ ván Người vs AI
+
+Module `ai/online_learner.py` cho phép AI **cập nhật model ngay sau khi chơi với người**, không cần chạy lại `train.py`.
+
+**Luồng xử lý (3 bước):**
+
+```
+Trong ván PvA:
+    GameMoveRecorder ghi từng nước AI (state, action, reward từng bước)
+
+Hết ván (không hòa, không undo):
+    Bước 1 — Ghi nhận:  build_transitions() chuẩn hoá reward nước cuối
+    Bước 2 — Học:       đưa vào buffer + chạy 32 bước gradient (nếu buffer ≥ 8)
+    Bước 3 — Cải tiến:  lưu models/dqn_{size}.pth + nạp lại trọng số agent đang chơi
+```
+
+**Reward nước cuối ván (online):**
+
+| Kết quả ván | Outcome | Reward nước AI cuối |
+|-------------|---------|---------------------|
+| Người thắng | `ai_loss` | **−1.0** (AI học từ sai lầm) |
+| AI thắng | `ai_win` | **+1.0** (củng cố chiến thắng) |
+| Hòa | `draw` | Không học |
+
+**Siêu tham số học online** (`config.py`):
+
+| Tham số | Giá trị | Vai trò |
+|---------|---------|---------|
+| `ONLINE_LEARN_ENABLED` | `True` | Bật/tắt học online |
+| `ONLINE_LEARN_GRADIENT_STEPS` | 32 | Số bước gradient sau mỗi ván |
+| `ONLINE_LEARN_MIN_SAMPLES` | 8 | Tối thiểu mẫu trong buffer mới chạy gradient |
+
+**Điều kiện kích hoạt:**
+
+| Điều kiện | Học? |
+|-----------|------|
+| Chế độ **Người vs AI** + AI loại **DQN / Hybrid** | ✅ |
+| Chế độ **Minimax** thuần | ❌ (không có mạng neural) |
+| Người **Undo** trong ván | ❌ (`invalidate()` huỷ bản ghi) |
+| Buffer < 8 mẫu | Chỉ ghi nhớ (`buffered_only`), **chưa** lưu model |
+
+**Tích hợp giao diện:**
+
+- **Web** (`web/session.py`): học đồng bộ ngay khi ván kết thúc; JSON trả về trường `online_learn`.
+- **Desktop** (`ui/screens/game_screen.py`): học trong thread nền để không treo UI; hiện thông báo trên HUD.
+
+### 4.5.8. Áp dụng kiến thức đã học khi chơi
+
+Kiến thức sau train **không nằm trong code Python** mà nằm trong **trọng số file `.pth`**. Khi chơi, AI nạp file đó và dùng mạng để chọn nước.
+
+**Hai instance mạng tách biệt:**
+
+| Instance | Dùng khi | File liên quan |
+|----------|----------|----------------|
+| `DQNTrainer.policy_net` | Train offline / học online | Ghi ra `.pth` qua `save_agent()` |
+| `DQNAgent.network` | Suy luận khi chơi | Đọc từ `.pth` qua `load()` |
+
+Hai mạng **không chia sẻ RAM** — đồng bộ qua file checkpoint. Sau học online, `OnlineLearner.reload_agent_weights()` gọi `dqn.load(path)` trên agent đang chơi; với Hybrid còn xóa `_eval_cache`.
+
+**Luồng chọn nước — DQN thuần** (`dqn_agent.get_move`):
+
+```
+1. find_tactical_move()     → thắng ngay / chặn thua ngay? → return (luật cứng, không qua DQN)
+2. epsilon-greedy           → random trong candidate_moves (theo độ khó)
+3. encode_board()           → tensor (3, H, W)
+4. network.forward()        → Q-value mọi ô
+5. mask ô không hợp lệ      → q[~legal] = -inf
+6. argmax Q                 → chọn ô Q cao nhất
+```
+
+**Luồng chọn nước — Hybrid** (`hybrid_agent`):
+
+```
+1. Tactical (giống trên)
+2. Minimax + Alpha-Beta (depth 2–3)
+3. Tại node lá: score = 55% × heuristic + 45% × Q-value (DQN)
+4. Truyền điểm ngược → chọn nước minimax tốt nhất
+```
+
+Nếu chưa có file `.pth`, Hybrid **fallback** về Minimax thuần (chỉ heuristic) — tránh mạng ngẫu nhiên làm AI yếu hơn.
+
+**Khi nào thay đổi có hiệu lực?**
+
+| Tình huống | Model mới có hiệu lực? |
+|------------|------------------------|
+| Học online xong, `model_saved = True` | ✅ Ngay ván sau (cùng session, agent được `reload`) |
+| Bấm **Chơi lại** (web/desktop) | ✅ Session/agent mới → `create_agent()` → `load()` từ `.pth` |
+| Chỉ `buffered_only` (buffer < 8) | ❌ Dữ liệu nằm trong buffer online, **chưa** ghi file — ván sau vẫn dùng model cũ |
+| Chơi **Minimax** thuần | ❌ Không dùng DQN |
+
+**Sơ đồ tổng thể train → chơi:**
+
+```
+[train.py / online_learner]
+        │
+        ▼
+  Replay Buffer → Gradient → policy_net (cập nhật trọng số)
+        │
+        ▼
+  save_agent() → models/dqn_15.pth
+        │
+        ▼
+  DQNAgent.load() / reload_agent_weights()
+        │
+        ▼
+  get_move(): tactical → (ε-greedy) → argmax Q → nước đi
+```
+
+Em kiểm thử nhanh: sau một ván học online (buffer đủ mẫu), trọng số mạng thay đổi đo được và Q-value trên cùng một thế cờ khác biệt rõ so với trước khi học — xác nhận pipeline ghi file → nạp lại → suy luận hoạt động đúng.
 
 ## 4.6. Giao diện người dùng
 
@@ -720,8 +955,10 @@ Browser click ô (row, col)
     → session.py quản lý CaroEnv
     → step(move người chơi)
     → agent.get_move(env) nếu PvAI
-    → JSON: board, last_move, winner, ai_move, win_prob
-    → app.js vẽ lại bàn cờ
+    → ghi nước AI vào GameMoveRecorder
+    → hết ván: online_learner học + lưu model (PvA + DQN/Hybrid)
+    → JSON: board, last_move, winner, ai_move, win_prob, online_learn
+    → app.js vẽ lại bàn cờ (+ thông báo "AI đã học từ thất bại" nếu có)
 ```
 
 ### 4.6.2. Desktop UI (Pygame)
@@ -733,6 +970,7 @@ python main.py
 - Menu chọn chế độ, AI, độ khó.
 - Game screen: click đặt quân, HUD sidebar, animation thắng.
 - Phím `R` chơi lại, `ESC` về menu.
+- PvA + DQN/Hybrid: sau ván thua/thắng, AI học online (thread nền) và hiện thông báo trên HUD.
 
 ### 4.6.3. Dev server
 
@@ -744,7 +982,16 @@ make dev   # hot reload qua dev.py
 
 # CHƯƠNG 5. KẾT HỢP HAI THUẬT TOÁN: HYBRID AGENT
 
+> **Chương quan trọng nhất của báo cáo.** Nếu chỉ đọc một chương về “kết hợp Minimax và DQN”, hãy đọc chương này.  
+> (Phần tóm tắt nhanh nằm ngay sau Mục lục — mục **“TÓM TẮT ĐỒ ÁN — KẾT HỢP HAI THUẬT TOÁN”**.)
+
 Đây là **phần trọng tâm** của đồ án — giải thích vì sao kết hợp, kết hợp như thế nào, và code làm gì từng dòng.
+
+**Hai thuật toán được kết hợp:**
+
+| Thuật toán 1 | Thuật toán 2 | Cách ghép |
+|--------------|--------------|-----------|
+| Minimax + Alpha-Beta (tìm kiếm cây) | DQN (mạng nơ-ron Q-value) | Minimax duyệt cây; **DQN thay thế/bổ sung heuristic tại node lá** |
 
 ## 5.1. Động lực và ý tưởng
 
@@ -949,15 +1196,19 @@ Lặp cho 13 nhánh còn lại, chọn nhánh có giá trị cao nhất.
 | Epsilon decay | 0.9995 |
 | Target sync | mỗi 200 bước |
 | Train every | 4 bước |
-| Min buffer | 256 transitions |
+| Min buffer (offline) | 256 transitions |
+| Gradient steps (online) | 32 bước / ván |
+| Min buffer (online) | 8 transitions |
 
-**Quy trình em thực hiện:**
+**Quy trình em thực hiện (train offline):**
 
 ```
 Giai đoạn 1: 800 ep vs Minimax depth=2
 Giai đoạn 2: 500 ep vs Minimax depth=3 (resume checkpoint)
 Giai đoạn 3: 300 ep vs Minimax depth=3 (fine-tune)
 ```
+
+**Học online bổ sung:** Sau khi có checkpoint ban đầu, mỗi ván PvA thắng/thua với người chơi có thể tinh chỉnh thêm model mà không cần chạy lại toàn bộ `train.py` (xem mục 4.5.7).
 
 ## 6.3. Kết quả huấn luyện thực tế
 
@@ -990,6 +1241,7 @@ python agent_tools.py eval --games 20
 | `test_caro_env.py` | Luật game, thắng, hòa, push/pop |
 | `test_minimax.py` | Chọn nước thắng/chặn, alpha-beta |
 | `test_dqn.py` | Encode, forward, save/load |
+| `test_online_learner.py` | Ghi nước AI, học online, undo invalidate |
 | `test_hybrid.py` | Fallback heuristic, trộn điểm |
 | `test_heuristic_tactical.py` | Thứ tự ưu tiên tactical |
 | `test_threats.py` | Phát hiện tam/tứ mở |

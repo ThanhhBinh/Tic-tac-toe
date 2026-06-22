@@ -20,6 +20,7 @@ pydantic>=2.0
 pytest>=8.0          # Unit test
 ruff>=0.5            # Lint + format theo PEP 8
 mypy>=1.10           # Kiểm tra type hint tĩnh
+tqdm>=4.66           # Thanh tiến độ huấn luyện DQN
 
 # --- (Tùy chọn) Tích hợp toolset agent-skills ---
 # agent-skills>=0.1.3

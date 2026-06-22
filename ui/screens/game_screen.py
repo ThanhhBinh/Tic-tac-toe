@@ -30,6 +30,7 @@ from config import (
     GameMode,
     Player,
     Theme,
+    create_caro_env,
 )
 from core.caro_env import CaroEnv
 from core.constants import Move
@@ -50,8 +51,8 @@ class GameScreen(BaseScreen):
     def __init__(self, app: "App") -> None:
         """Khởi tạo các thuộc tính; ván thực sự được dựng trong on_enter()."""
         super().__init__(app)
-        self.env: CaroEnv = CaroEnv(
-            size=app.settings.board_size,
+        self.env: CaroEnv = create_caro_env(
+            app.settings.board_size,
             double_end_block_rule=app.settings.double_end_block_rule,
         )
         self.agents: dict[Player, Agent | None] = {Player.X: None, Player.O: None}
@@ -96,8 +97,8 @@ class GameScreen(BaseScreen):
     def on_enter(self) -> None:
         """Dựng lại môi trường và agent theo cấu hình hiện tại mỗi khi vào màn."""
         settings = self.app.settings
-        self.env = CaroEnv(
-            size=settings.board_size,
+        self.env = create_caro_env(
+            settings.board_size,
             double_end_block_rule=settings.double_end_block_rule,
         )
         self.env.reset()

@@ -23,6 +23,7 @@ from config import (
     GameMode,
     Player,
     TacticalConfig,
+    create_caro_env,
 )
 from core.caro_env import CaroEnv
 from core.constants import Move
@@ -58,8 +59,8 @@ class GameSession:
         """Khởi tạo môi trường, agent và lịch sử undo/redo."""
         self.id: str = str(uuid.uuid4())
         self.settings = settings
-        self.env = CaroEnv(
-            size=settings.board_size,
+        self.env = create_caro_env(
+            settings.board_size,
             double_end_block_rule=settings.double_end_block_rule,
         )
         self.env.reset()

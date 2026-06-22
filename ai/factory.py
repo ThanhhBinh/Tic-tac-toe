@@ -26,7 +26,7 @@ def create_agent(
     Args:
         ai_type: Loại AI (Minimax / DQN / Hybrid).
         difficulty: Độ khó (depth Minimax hoặc epsilon DQN).
-        board_size: Cạnh bàn cờ (10 hoặc 15).
+        board_size: Cạnh bàn cờ (3, 5, 7, 10 hoặc 15).
         tactical_config: Luật chặn 2 đầu / chế độ tấn công.
 
     Returns:
