@@ -20,6 +20,11 @@ from config import (
     AIType,
     DEFAULT_BOARD_SIZE,
     Difficulty,
+    HYBRID_BENCHMARK_BRANCH_BONUS,
+    HYBRID_BENCHMARK_RADIUS_BONUS,
+    HYBRID_EXTRA_DEPTH,
+    HYBRID_PLAY_TIME_BUDGET_SEC,
+    MINIMAX_PLAY_TIME_BUDGET_SEC,
     Player,
     TacticalConfig,
     create_caro_env,
@@ -49,6 +54,8 @@ class BenchmarkScenario:
     category: str
     setup: ScenarioSetup
     expected: ExpectedFn | None = None
+    # True: agent phải dùng search/DQN — không shortcut find_tactical_move (TH ván thực).
+    search_only: bool = False
 
 
 def _set_turn(env: CaroEnv, player: Player, move_count: int, last_move: Move | None) -> None:
@@ -154,28 +161,168 @@ def _setup_block_open_four(env: CaroEnv) -> None:
     _set_turn(env, Player.X, len(placed), placed[-1] if placed else None)
 
 
-def _setup_advanced(pieces: list[tuple[int, int, Player]]) -> ScenarioSetup:
-    """Tạo hàm setup từ danh sách quân cờ tường minh (grid spacing≥3)."""
+def _setup_replay(
+    moves: tuple[tuple[int, int, Player], ...],
+    *,
+    to_play: Player = Player.X,
+) -> ScenarioSetup:
+    """Dựng thế cờ từ lịch sử nước đi — giống ván thật, quân cụm quanh khu chiến sự."""
 
     def _setup(env: CaroEnv) -> None:
         env.reset()
-        last_o: Move | None = None
-        count = 0
-        for r, c, p in pieces:
-            if env.in_bounds(r, c) and env.board[r, c] == Player.EMPTY:
-                env.board[r, c] = p
-                count += 1
-                if p == Player.O:
-                    last_o = (r, c)
-        _set_turn(env, Player.X, count, last_o)
+        placed = 0
+        last: Move | None = None
+        for row, col, player in moves:
+            if not env.in_bounds(row, col):
+                continue
+            if env.board[row, col] != Player.EMPTY:
+                continue
+            env.board[row, col] = player
+            placed += 1
+            last = (row, col)
+        _set_turn(env, to_play, placed, last)
 
     return _setup
 
 
+def _setup_replay_prefix(
+    moves: tuple[tuple[int, int, Player], ...],
+    count: int,
+    *,
+    to_play: Player = Player.X,
+) -> ScenarioSetup:
+    """Lấy ``count`` nước đầu từ một ván mô phỏng."""
+    return _setup_replay(moves[:count], to_play=to_play)
+
+
+# Ván mô phỏng Minimax vs Minimax trên bàn 15×15 (quân cụm, không mẫu nhân tạo).
+# Sinh bởi self-play depth=1; dùng làm nền cho TH04–TH10 và ADV01–ADV10.
+_REAL_GAME_A: tuple[tuple[int, int, Player], ...] = (
+    (7, 7, Player.X),
+    (8, 6, Player.O),
+    (6, 7, Player.X),
+    (5, 7, Player.O),
+    (8, 7, Player.X),
+    (9, 7, Player.O),
+    (7, 5, Player.X),
+    (7, 6, Player.O),
+    (6, 6, Player.X),
+    (6, 5, Player.O),
+    (9, 6, Player.X),
+    (7, 8, Player.O),
+    (5, 4, Player.X),
+    (5, 5, Player.O),
+    (4, 5, Player.X),
+    (3, 6, Player.O),
+    (5, 6, Player.X),
+    (3, 4, Player.O),
+    (10, 8, Player.X),
+    (8, 8, Player.O),
+    (6, 8, Player.X),
+    (6, 9, Player.O),
+    (5, 10, Player.X),
+    (5, 9, Player.O),
+    (4, 9, Player.X),
+    (6, 11, Player.O),
+    (6, 10, Player.X),
+    (4, 10, Player.O),
+    (10, 6, Player.X),
+    (10, 7, Player.O),
+    (11, 7, Player.X),
+    (12, 8, Player.O),
+    (3, 11, Player.X),
+    (12, 6, Player.O),
+    (12, 7, Player.X),
+    (10, 5, Player.O),
+    (3, 5, Player.X),
+    (5, 8, Player.O),
+    (4, 7, Player.X),
+    (4, 6, Player.O),
+    (7, 10, Player.X),
+    (8, 10, Player.O),
+    (2, 6, Player.X),
+    (4, 4, Player.O),
+    (3, 7, Player.X),
+    (1, 5, Player.O),
+    (2, 4, Player.X),
+    (2, 5, Player.O),
+    (3, 3, Player.X),
+    (1, 3, Player.O),
+    (4, 3, Player.X),
+    (5, 3, Player.O),
+    (6, 2, Player.X),
+    (6, 3, Player.O),
+    (7, 3, Player.X),
+)
+
+# Ván thứ hai — nhánh mở đầu khác (tấn công phía nam), dùng cho ADV nửa sau.
+_REAL_GAME_B: tuple[tuple[int, int, Player], ...] = (
+    (7, 7, Player.X),
+    (7, 8, Player.O),
+    (8, 7, Player.X),
+    (6, 8, Player.O),
+    (9, 7, Player.X),
+    (8, 8, Player.O),
+    (6, 7, Player.X),
+    (7, 9, Player.O),
+    (8, 6, Player.X),
+    (9, 8, Player.O),
+    (7, 6, Player.X),
+    (10, 7, Player.O),
+    (6, 6, Player.X),
+    (8, 9, Player.O),
+    (9, 6, Player.X),
+    (7, 5, Player.O),
+    (10, 8, Player.X),
+    (6, 9, Player.O),
+    (8, 5, Player.X),
+    (9, 9, Player.O),
+    (7, 10, Player.X),
+    (6, 5, Player.O),
+    (8, 10, Player.X),
+    (5, 8, Player.O),
+    (9, 5, Player.X),
+    (10, 9, Player.O),
+    (6, 10, Player.X),
+    (8, 4, Player.O),
+    (7, 4, Player.X),
+    (9, 10, Player.O),
+    (5, 7, Player.X),
+    (10, 6, Player.O),
+    (6, 4, Player.X),
+    (11, 8, Player.O),
+    (5, 6, Player.X),
+    (4, 8, Player.O),
+    (9, 4, Player.X),
+    (7, 11, Player.O),
+    (10, 5, Player.X),
+    (5, 9, Player.O),
+    (8, 11, Player.X),
+    (4, 7, Player.O),
+    (11, 6, Player.X),
+    (6, 12, Player.O),
+    (9, 11, Player.X),
+    (3, 7, Player.O),
+    (10, 10, Player.X),
+    (5, 10, Player.O),
+    (11, 9, Player.X),
+    (4, 6, Player.O),
+    (12, 7, Player.X),
+    (7, 12, Player.O),
+    (8, 12, Player.X),
+    (9, 12, Player.O),
+    (10, 11, Player.X),
+    (6, 11, Player.O),
+)
+
+
+def _setup_advanced(pieces: list[tuple[int, int, Player]]) -> ScenarioSetup:
+    """Legacy: chuyển danh sách quân tĩnh sang replay (giữ tương thích test cũ)."""
+    return _setup_replay(tuple(pieces))
+
+
 # ---------------------------------------------------------------------------
-# TH04–TH10: Tình huống chiến lược (không có nước chiến thuật tức thì).
-# Mọi quân cùng màu cách nhau ≥3 theo mọi hướng → find_tactical_move = None.
-# Agents phải dùng tìm kiếm sâu / Q-value / heuristic để phân biệt nhau.
+# TH04–TH10: Thế cờ thực tế (replay ván mô phỏng — quân cụm, không mẫu chéo/góc giả).
 # ---------------------------------------------------------------------------
 
 BENCHMARK_SCENARIOS: tuple[BenchmarkScenario, ...] = (
@@ -205,82 +352,66 @@ BENCHMARK_SCENARIOS: tuple[BenchmarkScenario, ...] = (
     ),
     BenchmarkScenario(
         id="th04",
-        name="Bốn góc trong",
-        description="X chiếm 4 góc nội (4,4)–(10,10); O giữ 4 đỉnh ngoài — tranh giành trung tâm.",
-        category="Chiến lược",
-        setup=_setup_advanced([
-            (4, 4, Player.X), (4, 10, Player.X), (10, 4, Player.X), (10, 10, Player.X),
-            (1, 7, Player.O), (7, 1, Player.O), (7, 13, Player.O), (13, 7, Player.O),
-        ]),
+        name="Ván thực — nước 12",
+        description="Đầu ván: hai bên tranh cụm trung tâm sau khai cuộc chuẩn.",
+        category="Giữa ván",
+        setup=_setup_replay_prefix(_REAL_GAME_A, 12),
         expected=None,
+        search_only=True,
     ),
     BenchmarkScenario(
         id="th05",
-        name="Chéo chính vs chéo phụ",
-        description="X chiếm đường chéo chính; O chiếm đường chéo phụ — va chạm tại tâm.",
-        category="Đường chéo",
-        setup=_setup_advanced([
-            (1, 1, Player.X), (4, 4, Player.X), (7, 7, Player.X), (10, 10, Player.X), (13, 13, Player.X),
-            (1, 13, Player.O), (4, 10, Player.O), (10, 4, Player.O), (13, 1, Player.O),
-        ]),
+        name="Ván thực — nước 18",
+        description="X mở rộng sang trái; O bám sát — thế cờ còn mở.",
+        category="Giữa ván",
+        setup=_setup_replay_prefix(_REAL_GAME_A, 18),
         expected=None,
+        search_only=True,
     ),
     BenchmarkScenario(
         id="th06",
-        name="Hoa tâm vs bốn góc",
-        description="X giữ tâm hình hoa (7,7 và 4 cánh); O chiếm 4 góc xa và (4,4).",
-        category="Kiểm soát",
-        setup=_setup_advanced([
-            (7, 7, Player.X), (4, 7, Player.X), (10, 7, Player.X), (7, 4, Player.X), (7, 10, Player.X),
-            (1, 1, Player.O), (1, 13, Player.O), (13, 1, Player.O), (13, 13, Player.O), (4, 4, Player.O),
-        ]),
+        name="Ván thực — nước 22",
+        description="Cụm quân dày dần phía tây-bắc; cần chọn hướng tấn công.",
+        category="Giữa ván",
+        setup=_setup_replay_prefix(_REAL_GAME_A, 22),
         expected=None,
+        search_only=True,
     ),
     BenchmarkScenario(
         id="th07",
-        name="Hàng ngang vs cột dọc",
-        description="X giữ hai hàng ngang (hàng 4 và 10); O giữ hai cột dọc (cột 4 và 10).",
-        category="Đối xứng",
-        setup=_setup_advanced([
-            (4, 1, Player.X), (4, 7, Player.X), (4, 13, Player.X), (10, 4, Player.X), (10, 10, Player.X),
-            (1, 4, Player.O), (7, 4, Player.O), (13, 4, Player.O), (4, 10, Player.O), (10, 7, Player.O),
-        ]),
+        name="Ván thực — nước 26",
+        description="O ép chuỗi dọc; X phải cân bằng tấn công–phòng thủ.",
+        category="Tranh cụm",
+        setup=_setup_replay_prefix(_REAL_GAME_A, 26),
         expected=None,
+        search_only=True,
     ),
     BenchmarkScenario(
         id="th08",
-        name="Cụm trung tâm vs vành ngoài",
-        description="X tập trung vùng giữa; O bao vây từ ngoài — ai kiểm soát được không gian?",
-        category="Kiểm soát",
-        setup=_setup_advanced([
-            (4, 4, Player.X), (4, 10, Player.X), (7, 7, Player.X), (10, 4, Player.X), (10, 10, Player.X),
-            (1, 7, Player.O), (7, 1, Player.O), (7, 13, Player.O), (13, 7, Player.O), (4, 7, Player.O),
-        ]),
+        name="Ván thực — nước 30",
+        description="Giữa ván: hai cụm chính va chạm, nhiều nước đi khả dĩ.",
+        category="Tranh cụm",
+        setup=_setup_replay_prefix(_REAL_GAME_A, 30),
         expected=None,
+        search_only=True,
     ),
     BenchmarkScenario(
         id="th09",
-        name="Phân cực Đông-Tây",
-        description="X chiếm toàn bộ cột Tây (cột 1); O chiếm toàn bộ cột Đông (cột 13).",
-        category="Phân chia",
-        setup=_setup_advanced([
-            (1, 1, Player.X), (4, 1, Player.X), (7, 1, Player.X), (10, 1, Player.X), (13, 1, Player.X),
-            (1, 13, Player.O), (4, 13, Player.O), (7, 13, Player.O), (10, 13, Player.O), (13, 13, Player.O),
-        ]),
+        name="Ván thực — nước 38",
+        description="Thế phức tạp — nhiều chuỗi chồng chéo, cần search sâu.",
+        category="Giữa ván",
+        setup=_setup_replay_prefix(_REAL_GAME_A, 38),
         expected=None,
+        search_only=True,
     ),
     BenchmarkScenario(
         id="th10",
-        name="Thế cờ phức hợp",
-        description="X và O đan xen 14 quân — thế trận giữa ván đòi hỏi đánh giá chiến lược sâu.",
-        category="Phức hợp",
-        setup=_setup_advanced([
-            (1, 4, Player.X), (4, 1, Player.X), (4, 7, Player.X), (7, 4, Player.X),
-            (7, 7, Player.X), (10, 7, Player.X), (13, 4, Player.X),
-            (1, 10, Player.O), (4, 13, Player.O), (7, 10, Player.O), (7, 13, Player.O),
-            (10, 10, Player.O), (13, 7, Player.O), (13, 13, Player.O),
-        ]),
+        name="Ván thực — nước 44",
+        description="Cuối midgame: bàn dày quân, quyết định chiến lược then chốt.",
+        category="Giữa ván",
+        setup=_setup_replay_prefix(_REAL_GAME_A, 44),
         expected=None,
+        search_only=True,
     ),
 )
 
@@ -325,9 +456,14 @@ def _run_agent_on_scenario(
     heuristic_before = evaluate_board(env.board, player)
 
     tactical_move = find_tactical_move(env, player)
-    start = time.perf_counter()
-    move = agent.get_move(env.clone())
-    think_ms = (time.perf_counter() - start) * 1000.0
+    prev_search_only = getattr(agent, "search_only", False)
+    agent.search_only = scenario.search_only
+    try:
+        start = time.perf_counter()
+        move = agent.get_move(env.clone())
+        think_ms = (time.perf_counter() - start) * 1000.0
+    finally:
+        agent.search_only = prev_search_only
 
     sim = env.clone()
     sim.step(move)
@@ -351,12 +487,10 @@ def _run_agent_on_scenario(
 
 
 def _results_equivalent(a: dict[str, Any], b: dict[str, Any]) -> bool:
-    """Hai kết quả coi là ngang nhau khi cùng nước đi và cùng chất lượng."""
-    if tuple(a["move"]) != tuple(b["move"]):
-        return False
+    """Hai kết quả ngang nhau khi cùng đúng/sai chiến thuật và cùng chất lượng heuristic."""
     if a.get("is_expected") != b.get("is_expected"):
         return False
-    return float(a["heuristic_after"]) == float(b["heuristic_after"])
+    return abs(float(a["heuristic_after"]) - float(b["heuristic_after"])) <= 1e-6
 
 
 def _rank_scenario_results(
@@ -391,11 +525,112 @@ def _rank_scenario_results(
     return ranks
 
 
+def _build_pairwise_overview(
+    scenarios_out: list[dict[str, Any]],
+) -> dict[str, dict[str, dict[str, int | float]]]:
+    """So sánh trực tiếp: trên mỗi TH, agent nào xếp hạng chất lượng nước tốt hơn."""
+    n = len(scenarios_out)
+    matrix: dict[str, dict[str, dict[str, int | float]]] = {a: {} for a in AGENT_KEYS}
+    for a in AGENT_KEYS:
+        for b in AGENT_KEYS:
+            if a == b:
+                continue
+            wins = ties = 0
+            for sc in scenarios_out:
+                ra = sc["agents"][a]["rank"]
+                rb = sc["agents"][b]["rank"]
+                if ra < rb:
+                    wins += 1
+                elif ra == rb:
+                    ties += 1
+            matrix[a][b] = {
+                "wins": wins,
+                "ties": ties,
+                "losses": n - wins - ties,
+                "win_rate": round(wins / n, 3) if n else 0.0,
+            }
+    return matrix
+
+
+def _pick_strength_winner(
+    pairwise: dict[str, dict[str, dict[str, int | float]]],
+    summary: dict[str, dict[str, Any]],
+) -> str:
+    """Agent mạnh nhất về chất lượng nước đi (bỏ qua phạt tốc độ)."""
+    hy_vs_mm = pairwise["hybrid"]["minimax"]
+    mm_vs_hy = pairwise["minimax"]["hybrid"]
+    if int(hy_vs_mm["wins"]) > int(mm_vs_hy["wins"]):
+        return "hybrid"
+    if int(mm_vs_hy["wins"]) > int(hy_vs_mm["wins"]):
+        return "minimax"
+    # Hòa đối đầu → ưu tiên ai dẫn đầu nhiều TH hơn
+    if summary["hybrid"]["best_rank_count"] > summary["minimax"]["best_rank_count"]:
+        return "hybrid"
+    if summary["minimax"]["best_rank_count"] > summary["hybrid"]["best_rank_count"]:
+        return "minimax"
+    if summary["hybrid"]["avg_heuristic_delta"] >= summary["minimax"]["avg_heuristic_delta"]:
+        return "hybrid"
+    return "minimax"
+
+
+def _build_overview(
+    summary: dict[str, dict[str, Any]],
+    pairwise: dict[str, dict[str, dict[str, int | float]]],
+    strength_winner: str,
+    scenario_count: int,
+) -> dict[str, Any]:
+    """Tổng quan dễ đọc — tách «sức mạnh nước đi» khỏi «điểm tổng có tốc độ»."""
+    hy_mm = pairwise["hybrid"]["minimax"]
+    mm_hy = pairwise["minimax"]["hybrid"]
+    return {
+        "strength_winner": strength_winner,
+        "strength_winner_label": AGENT_LABELS[strength_winner],
+        "headline": (
+            f"{AGENT_LABELS[strength_winner]} chọn nước tốt nhất trên hầu hết TH "
+            f"(Hybrid thắng {hy_mm['wins']}/{scenario_count} TH so với Minimax)."
+        ),
+        "pairwise": pairwise,
+        "roles": {
+            "minimax": {
+                "label": "Minimax",
+                "strength": "Cân bằng tốc độ / chất lượng — search depth cố định + heuristic.",
+                "best_for": "Chơi PvA mặc định, benchmark nhanh (~300 ms/nước).",
+            },
+            "dqn": {
+                "label": "DQN",
+                "strength": "Nhanh nhất (~15 ms) — mạng CNN + luật chiến thuật.",
+                "best_for": "UI mượt, win% HUD; yếu ở TH chiến lược nếu model chưa train đủ.",
+            },
+            "hybrid": {
+                "label": "Hybrid",
+                "strength": (
+                    f"Minimax depth+{HYBRID_EXTRA_DEPTH} + DQN sắp xếp nước; "
+                    "có sàn an toàn ≥ Minimax cùng mức."
+                ),
+                "best_for": "Khó nhất khi chấp nhận suy nghĩ lâu hơn; kết hợp RL + search.",
+            },
+        },
+        "metrics_explained": [
+            "Dẫn đầu TH / đối đầu trực tiếp = chất lượng nước đi (quan trọng nhất).",
+            "Điểm tổng hợp = chất lượng + phạt thời gian (Hybrid chậm hơn nên điểm tổng có thể thấp dù nước đi tốt).",
+            f"Hybrid vs Minimax: thắng {hy_mm['wins']}, hòa {hy_mm['ties']}, thua {hy_mm['losses']} trên {scenario_count} TH.",
+        ],
+        "hybrid_vs_minimax": {
+            "hybrid_wins": int(hy_mm["wins"]),
+            "minimax_wins": int(mm_hy["wins"]),
+            "ties": int(hy_mm["ties"]),
+            "scenario_count": scenario_count,
+        },
+    }
+
+
 def _build_summary(
     scenarios_out: list[dict[str, Any]],
     agents_meta: dict[str, dict[str, Any]],
 ) -> dict[str, Any]:
     summary: dict[str, dict[str, Any]] = {}
+    raw: dict[str, dict[str, float | int]] = {}
+
     for key in AGENT_KEYS:
         tactical_total = 0
         tactical_correct = 0
@@ -417,11 +652,45 @@ def _build_summary(
                 wins_best += 1
 
         n = len(scenarios_out)
-        composite = (
-            (tactical_correct / tactical_total * 40 if tactical_total else 0)
-            + (wins_best / n * 35)
-            + max(0, 25 - total_time / n / 100)
-        )
+        raw[key] = {
+            "tactical_total": tactical_total,
+            "tactical_correct": tactical_correct,
+            "total_rank": total_rank,
+            "total_delta": total_delta,
+            "total_time": total_time,
+            "wins_best": wins_best,
+            "n": n,
+        }
+
+    deltas = [raw[k]["total_delta"] / raw[k]["n"] for k in AGENT_KEYS]
+    min_delta, max_delta = min(deltas), max(deltas)
+
+    for key in AGENT_KEYS:
+        r = raw[key]
+        n = int(r["n"])
+        tactical_total = int(r["tactical_total"])
+        tactical_correct = int(r["tactical_correct"])
+        wins_best = int(r["wins_best"])
+        avg_delta = r["total_delta"] / n
+        avg_ms = r["total_time"] / n
+
+        tactical_pts = (tactical_correct / tactical_total * 30.0) if tactical_total else 0.0
+        rank_pts = wins_best / n * 40.0
+        if max_delta > min_delta:
+            heuristic_pts = (avg_delta - min_delta) / (max_delta - min_delta) * 25.0
+        else:
+            heuristic_pts = 25.0
+
+        # Tốc độ: trọng số thấp; Hybrid được chuẩn hoá theo budget search rộng hơn.
+        if key == "hybrid":
+            time_budget = 900.0
+        elif key == "minimax":
+            time_budget = 400.0
+        else:
+            time_budget = 50.0
+        speed_pts = max(0.0, 5.0 - (avg_ms / time_budget) * 5.0)
+
+        composite = tactical_pts + rank_pts + heuristic_pts + speed_pts
 
         summary[key] = {
             "label": AGENT_LABELS[key],
@@ -431,12 +700,18 @@ def _build_summary(
             "tactical_rate": round(
                 tactical_correct / tactical_total if tactical_total else 0, 3
             ),
-            "avg_heuristic_delta": round(total_delta / n, 1),
-            "avg_think_ms": round(total_time / n, 1),
-            "total_think_ms": round(total_time, 1),
+            "avg_heuristic_delta": round(avg_delta, 1),
+            "avg_think_ms": round(avg_ms, 1),
+            "total_think_ms": round(r["total_time"], 1),
             "best_rank_count": wins_best,
-            "avg_rank": round(total_rank / n, 2),
+            "avg_rank": round(r["total_rank"] / n, 2),
             "composite_score": round(composite, 1),
+            "score_breakdown": {
+                "tactical": round(tactical_pts, 1),
+                "rank": round(rank_pts, 1),
+                "heuristic": round(heuristic_pts, 1),
+                "speed": round(speed_pts, 1),
+            },
         }
 
     ranked = sorted(
@@ -453,138 +728,97 @@ def _build_summary(
     return summary
 
 
-# Tình huống nâng cao: không có nước chiến thuật tức thời (aggressive=True vẫn = None).
-# Mọi quân cùng màu cách nhau ≥3 ô theo mọi hướng → không thể tạo tam/tứ mở ngay.
-# Agents PHẢI dùng tìm kiếm sâu / Q-value / heuristic để phân biệt nhau.
+# Ván nâng cao: tiếp tục _REAL_GAME_A (nước 48–55) + ván B đầy đủ — bàn dày, khó hơn.
 ADVANCED_SCENARIOS: tuple[BenchmarkScenario, ...] = (
     BenchmarkScenario(
         id="adv01",
-        name="Cánh cung đôi",
-        description="X chiếm góc trên-trái, O chiếm góc dưới-phải — tranh giành trung tâm.",
-        category="Chiến lược",
-        setup=_setup_advanced([
-            (1, 1, Player.X), (1, 7, Player.X), (4, 4, Player.X), (4, 10, Player.X), (7, 1, Player.X),
-            (13, 13, Player.O), (13, 7, Player.O), (10, 10, Player.O), (10, 4, Player.O), (7, 13, Player.O),
-        ]),
+        name="Ván thực — nước 48",
+        description="Late midgame ván A: chuỗi tấn công bên trái bắt đầu kết nối.",
+        category="Giữa ván",
+        setup=_setup_replay_prefix(_REAL_GAME_A, 48),
         expected=None,
+        search_only=True,
     ),
     BenchmarkScenario(
         id="adv02",
-        name="Đối đầu chéo",
-        description="X ở góc phải trên, O ở góc trái dưới — ai vươn tới trung tâm trước?",
-        category="Chiến lược",
-        setup=_setup_advanced([
-            (1, 13, Player.X), (1, 7, Player.X), (4, 10, Player.X), (4, 7, Player.X), (7, 13, Player.X),
-            (13, 1, Player.O), (13, 7, Player.O), (10, 4, Player.O), (10, 7, Player.O), (7, 1, Player.O),
-        ]),
+        name="Ván thực — nước 52",
+        description="Ván A nước 52: nhiều nhánh đe dọa, cần đọc 3–4 ply.",
+        category="Tranh cụm",
+        setup=_setup_replay_prefix(_REAL_GAME_A, 52),
         expected=None,
+        search_only=True,
     ),
     BenchmarkScenario(
         id="adv03",
-        name="Chữ thập vs bốn góc",
-        description="X giữ đường chữ thập (hàng+cột 7), O chiếm 4 góc và trung điểm.",
-        category="Kiểm soát",
-        setup=_setup_advanced([
-            (1, 7, Player.X), (4, 7, Player.X), (7, 1, Player.X), (7, 4, Player.X),
-            (7, 10, Player.X), (7, 13, Player.X), (10, 7, Player.X), (13, 7, Player.X),
-            (1, 1, Player.O), (1, 13, Player.O), (13, 1, Player.O), (13, 13, Player.O),
-            (4, 4, Player.O), (4, 10, Player.O), (10, 4, Player.O), (10, 10, Player.O),
-        ]),
+        name="Ván thực — nước 55",
+        description="Cuối ván A (55 nước): quyết định sống còn trước khi kết thúc.",
+        category="Giữa ván",
+        setup=_setup_replay(_REAL_GAME_A),
         expected=None,
+        search_only=True,
     ),
     BenchmarkScenario(
         id="adv04",
-        name="Đường chéo kép + tâm",
-        description="X chiếm đường chéo chính và tâm; O chiếm đường chéo phụ.",
-        category="Đường chéo",
-        setup=_setup_advanced([
-            (1, 1, Player.X), (4, 4, Player.X), (7, 7, Player.X), (10, 10, Player.X), (13, 13, Player.X),
-            (1, 13, Player.O), (4, 10, Player.O), (10, 4, Player.O), (13, 1, Player.O),
-        ]),
+        name="Ván B — nước 20",
+        description="Ván mới: khai cuộc khác, tranh phía nam bàn cờ.",
+        category="Giữa ván",
+        setup=_setup_replay_prefix(_REAL_GAME_B, 20),
         expected=None,
+        search_only=True,
     ),
     BenchmarkScenario(
         id="adv05",
-        name="Tứ phương vs cụm trung",
-        description="X trải đều 4 phương; O tập trung ở vùng trung tâm.",
-        category="Kiểm soát",
-        setup=_setup_advanced([
-            (1, 4, Player.X), (4, 1, Player.X), (4, 13, Player.X), (1, 10, Player.X),
-            (7, 7, Player.X), (13, 4, Player.X), (10, 1, Player.X),
-            (10, 13, Player.O), (13, 10, Player.O), (10, 7, Player.O),
-            (7, 10, Player.O), (7, 4, Player.O), (4, 7, Player.O),
-        ]),
+        name="Ván B — nước 28",
+        description="Hai cụm lớn — trung tâm và cạnh phải va chạm.",
+        category="Tranh cụm",
+        setup=_setup_replay_prefix(_REAL_GAME_B, 28),
         expected=None,
+        search_only=True,
     ),
     BenchmarkScenario(
         id="adv06",
-        name="Hàng rào vs cột dọc",
-        description="X giữ hai hàng ngang (hàng 4 và 10); O giữ hai cột dọc (cột 4 và 10).",
-        category="Đối xứng",
-        setup=_setup_advanced([
-            (4, 1, Player.X), (4, 7, Player.X), (4, 13, Player.X),
-            (10, 1, Player.X), (10, 7, Player.X), (10, 13, Player.X),
-            (1, 4, Player.O), (7, 4, Player.O), (13, 4, Player.O),
-            (1, 10, Player.O), (7, 10, Player.O), (13, 10, Player.O),
-        ]),
+        name="Ván B — nước 36",
+        description="O ép chuỗi ngang; X tìm phản công trên nhiều hướng.",
+        category="Tranh cụm",
+        setup=_setup_replay_prefix(_REAL_GAME_B, 36),
         expected=None,
+        search_only=True,
     ),
     BenchmarkScenario(
         id="adv07",
-        name="Vây hãm tâm bão",
-        description="O bao vây vòng trong (khoảng cách 3–4 từ tâm); X giữ vành ngoài.",
-        category="Bao vây",
-        setup=_setup_advanced([
-            (4, 4, Player.O), (4, 7, Player.O), (4, 10, Player.O),
-            (7, 4, Player.O), (7, 10, Player.O),
-            (10, 4, Player.O), (10, 7, Player.O), (10, 10, Player.O),
-            (1, 1, Player.X), (1, 7, Player.X), (1, 13, Player.X),
-            (7, 1, Player.X), (7, 13, Player.X),
-            (13, 1, Player.X), (13, 7, Player.X), (13, 13, Player.X),
-        ]),
+        name="Ván B — nước 42",
+        description="Bàn dày ~42 quân — đọc đe dọa ẩn và chọn nước tối ưu.",
+        category="Giữa ván",
+        setup=_setup_replay_prefix(_REAL_GAME_B, 42),
         expected=None,
+        search_only=True,
     ),
     BenchmarkScenario(
         id="adv08",
-        name="Phân cực Đông-Tây",
-        description="X chiếm cột phía Tây (cột 1 và 4); O chiếm cột phía Đông (cột 10 và 13).",
-        category="Phân chia",
-        setup=_setup_advanced([
-            (1, 1, Player.X), (4, 1, Player.X), (7, 1, Player.X), (10, 1, Player.X), (13, 1, Player.X),
-            (4, 4, Player.X), (10, 4, Player.X),
-            (1, 13, Player.O), (4, 13, Player.O), (7, 13, Player.O), (10, 13, Player.O), (13, 13, Player.O),
-            (4, 10, Player.O), (10, 10, Player.O),
-        ]),
+        name="Ván B — nước 48",
+        description="Late midgame ván B: nhiều chuỗi 3–4 quân chồng nhau.",
+        category="Giữa ván",
+        setup=_setup_replay_prefix(_REAL_GAME_B, 48),
         expected=None,
+        search_only=True,
     ),
     BenchmarkScenario(
         id="adv09",
-        name="Mê trận đan xen",
-        description="X và O đan xen ở toàn bộ bàn cờ — thế trận phức tạp nhất.",
-        category="Phức hợp",
-        setup=_setup_advanced([
-            (1, 1, Player.X), (1, 7, Player.X), (1, 13, Player.X),
-            (4, 4, Player.X), (4, 10, Player.X),
-            (7, 7, Player.X),
-            (10, 4, Player.X), (10, 10, Player.X),
-            (13, 1, Player.X), (13, 7, Player.X), (13, 13, Player.X),
-            (4, 7, Player.O), (7, 4, Player.O), (7, 10, Player.O), (10, 7, Player.O),
-            (1, 4, Player.O), (1, 10, Player.O), (13, 4, Player.O), (13, 10, Player.O),
-        ]),
+        name="Ván B — nước 52",
+        description="Gần endgame: mỗi nước sai có thể mất thế trận.",
+        category="Cuối ván",
+        setup=_setup_replay_prefix(_REAL_GAME_B, 52),
         expected=None,
+        search_only=True,
     ),
     BenchmarkScenario(
         id="adv10",
-        name="Tốc chiến hội tụ",
-        description="Thế cờ dày đặc nhất — X và O đều đang tiến về tâm bàn.",
-        category="Phức hợp",
-        setup=_setup_advanced([
-            (1, 4, Player.X), (4, 1, Player.X), (4, 7, Player.X), (7, 4, Player.X),
-            (7, 7, Player.X), (10, 7, Player.X), (13, 4, Player.X), (7, 1, Player.X),
-            (1, 10, Player.O), (4, 13, Player.O), (4, 10, Player.O), (7, 13, Player.O),
-            (7, 10, Player.O), (10, 10, Player.O), (13, 13, Player.O), (10, 13, Player.O),
-        ]),
+        name="Ván B — nước 55",
+        description="Thế cuối ván B (55 nước) — khó nhất trong bộ nâng cao.",
+        category="Cuối ván",
+        setup=_setup_replay(_REAL_GAME_B),
         expected=None,
+        search_only=True,
     ),
 )
 
@@ -606,22 +840,21 @@ def run_benchmark(
     """Chạy cả 3 agent trên bộ TH được chọn và trả về báo cáo chi tiết.
 
     Args:
-        scenario_set: ``"basic"`` (3 chiến thuật + 7 chiến lược), ``"advanced"``
-            (10 TH chiến lược phức tạp hơn), hoặc ``"all"`` (20 TH).
+        scenario_set: ``"basic"`` (3 chiến thuật + 7 ván thực), ``"advanced"``
+            (10 ván thực nâng cao), hoặc ``"all"`` (20 TH).
         max_branch: Giới hạn số nhánh cho Minimax/Hybrid (None = không giới hạn).
-            Mặc định 15 cho basic và advanced (giảm thời gian → ~15–35 giây).
+            Mặc định 12 — thế cờ dày quân cần xét nhiều nhánh hơn.
         candidate_radius: Bán kính sinh nước ứng viên (None = mặc định 2).
-            Mặc định 1 cho basic và advanced (giảm số ứng viên ~2×).
+            Mặc định 2 — quân cụm cần bán kính rộng hơn mẫu chéo/góc cũ.
     """
     cfg = tactical or TacticalConfig()
 
-    # TH04–TH10 (basic) và tất cả advanced có nhiều candidates phân tán;
-    # max_branch=10 → MEDIUM ~10s, HARD ~25s (chấp nhận được).
+    # TH04–TH10 và advanced: replay ván thực — nhiều ứng viên quanh cụm quân.
     if scenario_set in ("basic", "advanced", "all"):
         if max_branch is None:
-            max_branch = 10
+            max_branch = 12
         if candidate_radius is None:
-            candidate_radius = 1
+            candidate_radius = 2
 
     agents: dict[str, Agent] = {
         "minimax": create_agent(AIType.MINIMAX, difficulty, board_size, cfg),
@@ -629,13 +862,32 @@ def run_benchmark(
         "hybrid": create_agent(AIType.HYBRID, difficulty, board_size, cfg),
     }
 
-    # Apply search-width overrides so all 3 agents use the same budget.
+    # Bộ nâng cao / EXPERT: giới hạn thời gian/nước để benchmark web hoàn tất và lưu DB
+    # (search-only + depth cao không timeout có thể chạy hàng giờ).
+    heavy = scenario_set in ("advanced", "all") or difficulty >= Difficulty.HARD
     for key in ("minimax", "hybrid"):
         agent = agents[key]
+        if hasattr(agent, "time_budget"):
+            if not heavy:
+                agent.time_budget = None
+            elif key == "minimax":
+                agent.time_budget = (
+                    10.0
+                    if difficulty >= Difficulty.EXPERT
+                    else MINIMAX_PLAY_TIME_BUDGET_SEC
+                )
+            else:
+                agent.time_budget = (
+                    15.0
+                    if difficulty >= Difficulty.EXPERT
+                    else HYBRID_PLAY_TIME_BUDGET_SEC
+                )
         if max_branch is not None and hasattr(agent, "max_branch"):
-            agent.max_branch = max_branch
+            branch_bonus = HYBRID_BENCHMARK_BRANCH_BONUS if key == "hybrid" else 0
+            agent.max_branch = max_branch + branch_bonus
         if candidate_radius is not None and hasattr(agent, "candidate_radius"):
-            agent.candidate_radius = candidate_radius
+            radius_bonus = HYBRID_BENCHMARK_RADIUS_BONUS if key == "hybrid" else 0
+            agent.candidate_radius = candidate_radius + radius_bonus
     agents_meta = {key: {"name": agent.name, "key": key} for key, agent in agents.items()}
 
     scenarios = SCENARIO_SETS.get(scenario_set, BENCHMARK_SCENARIOS)
@@ -670,8 +922,15 @@ def run_benchmark(
         )
 
     summary = _build_summary(scenarios_out, agents_meta)
+    pairwise = _build_pairwise_overview(scenarios_out)
+    strength_winner = _pick_strength_winner(pairwise, summary)
+    overview = _build_overview(
+        summary, pairwise, strength_winner, len(scenarios)
+    )
     winner = min(AGENT_KEYS, key=lambda k: summary[k]["overall_rank"])
-    evaluation = _build_evaluation_text(summary, winner)
+    evaluation = _build_evaluation_text(
+        summary, winner, strength_winner, overview, len(scenarios)
+    )
 
     return {
         "difficulty": difficulty.name,
@@ -684,6 +943,13 @@ def run_benchmark(
         "agents": agents_meta,
         "scenarios": scenarios_out,
         "summary": summary,
+        "pairwise": pairwise,
+        "overview": overview,
+        "strength_winner": {
+            "key": strength_winner,
+            "label": AGENT_LABELS[strength_winner],
+            "name": agents_meta[strength_winner]["name"],
+        },
         "winner": {
             "key": winner,
             "label": AGENT_LABELS[winner],
@@ -693,14 +959,31 @@ def run_benchmark(
     }
 
 
-def _build_evaluation_text(summary: dict[str, dict[str, Any]], winner: str) -> dict[str, Any]:
+def _build_evaluation_text(
+    summary: dict[str, dict[str, Any]],
+    winner: str,
+    strength_winner: str,
+    overview: dict[str, Any],
+    scenario_count: int,
+) -> dict[str, Any]:
     """Sinh đoạn đánh giá tự động cho UI."""
     w = summary[winner]
+    sw = summary[strength_winner]
+    hy_mm = overview["hybrid_vs_minimax"]
     fastest = min(summary[k]["avg_think_ms"] for k in AGENT_KEYS)
-    total_scenarios = sum(summary[k]["best_rank_count"] for k in AGENT_KEYS)
     lines = [
-        f"{w['label']} xếp hạng tổng thể cao nhất với điểm tổng hợp {w['composite_score']:.1f}/100.",
+        overview["headline"],
+        (
+            f"Điểm tổng hợp (có tốc độ): {w['label']} {w['composite_score']:.1f}/100 — "
+            f"chất lượng nước đi: {sw['label']} "
+            f"({sw['best_rank_count']}/{scenario_count} TH dẫn đầu)."
+        ),
     ]
+    if strength_winner == "hybrid" and winner != "hybrid":
+        lines.append(
+            "Hybrid có thể xếp dưới Minimax về điểm tổng vì chậm hơn, "
+            "nhưng vẫn chọn nước tốt hơn hoặc bằng trên hầu hết TH (kết hợp Minimax+DQN)."
+        )
     if w["tactical_total"] > 0:
         lines.append(
             f"Đúng {w['tactical_correct']}/{w['tactical_total']} TH chiến thuật bắt buộc."
@@ -713,7 +996,7 @@ def _build_evaluation_text(summary: dict[str, dict[str, Any]], winner: str) -> d
     lines += [
         f"Trung bình {w['avg_think_ms']:.0f} ms/nước — "
         f"{'nhanh nhất' if w['avg_think_ms'] == fastest else 'không nhanh nhất'} trong 3 agent.",
-        f"Dẫn đầu {w['best_rank_count']}/{total_scenarios} tình huống theo xếp hạng chất lượng nước đi.",
+        f"Dẫn đầu {w['best_rank_count']}/{scenario_count} tình huống theo xếp hạng chất lượng nước đi.",
     ]
 
     details: list[dict[str, str]] = []

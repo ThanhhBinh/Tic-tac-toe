@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from config import WIN_LENGTH, Player
+from config import Player, win_length_for_board
 from core.constants import DIRECTIONS, Board, Move
 
 
@@ -36,20 +36,25 @@ class CaroEnv:
     def __init__(
         self,
         size: int = 15,
-        win_length: int = WIN_LENGTH,
+        win_length: int | None = None,
         double_end_block_rule: bool = False,
     ) -> None:
         """Khởi tạo môi trường với kích thước bàn cờ cho trước.
 
         Args:
-            size: Cạnh bàn cờ (vd: 10 hoặc 15).
-            win_length: Số quân liên tiếp để thắng (mặc định 5).
-            double_end_block_rule: Nếu True, đúng 5 quân liên tiếp bị chặn
-                hai đầu bởi đối phương (hoặc biên bàn) không được tính thắng.
+            size: Cạnh bàn cờ (vd: 3, 5, 7, 10 hoặc 15).
+            win_length: Số quân liên tiếp để thắng. None (mặc định) = tự suy
+                theo kích thước bàn (bàn 3×3 thắng với 3 quân, 5×5 thắng với 5,
+                bàn ≥7 dùng luật chuẩn 5). Nhờ vậy mọi nơi tạo env — kể cả
+                huấn luyện / đánh giá — đều đúng luật cho bàn nhỏ.
+            double_end_block_rule: Nếu True, đúng ``win_length`` quân liên tiếp
+                bị chặn hai đầu bởi đối phương (hoặc biên bàn) không tính thắng.
 
         Raises:
             ValueError: Nếu size nhỏ hơn win_length.
         """
+        if win_length is None:
+            win_length = win_length_for_board(size)
         if size < win_length:
             raise ValueError(
                 f"Kích thước bàn cờ ({size}) phải >= số quân thắng ({win_length})."

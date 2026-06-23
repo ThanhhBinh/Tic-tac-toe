@@ -64,6 +64,130 @@ def play_game(agent_a: Agent, agent_b: Agent, board_size: int = DEFAULT_BOARD_SI
     return env.winner
 
 
+def play_match_agents(
+    agent_a: Agent,
+    agent_b: Agent,
+    num_games: int,
+    board_size: int,
+) -> dict[str, int | float]:
+    """Đấu ``num_games`` ván giữa hai agent đã khởi tạo, đổi màu xen kẽ.
+
+    Args:
+        agent_a: Agent thứ nhất.
+        agent_b: Agent thứ hai.
+        num_games: Số ván (nửa đi trước, nửa đi sau).
+        board_size: Kích thước bàn cờ.
+
+    Returns:
+        Dict thống kê wins_a / wins_b / draws / win_rate_a (kể cả nửa hoà).
+    """
+    wins_a = wins_b = draws = 0
+    for i in range(num_games):
+        if i % 2 == 0:
+            winner = play_game(agent_a, agent_b, board_size)
+            if winner is Player.X:
+                wins_a += 1
+            elif winner is Player.O:
+                wins_b += 1
+            else:
+                draws += 1
+        else:
+            winner = play_game(agent_b, agent_a, board_size)
+            if winner is Player.X:
+                wins_b += 1
+            elif winner is Player.O:
+                wins_a += 1
+            else:
+                draws += 1
+    return {
+        "games": num_games,
+        "wins_a": wins_a,
+        "wins_b": wins_b,
+        "draws": draws,
+        "win_rate_a": wins_a / num_games if num_games else 0.0,
+        "win_rate_b": wins_b / num_games if num_games else 0.0,
+    }
+
+
+def round_robin(
+    difficulty: Difficulty = Difficulty.MEDIUM,
+    board_size: int = DEFAULT_BOARD_SIZE,
+    num_games: int = 20,
+    keys: tuple[str, ...] = ("minimax", "dqn", "hybrid"),
+    tactical_config: object | None = None,
+) -> dict[str, object]:
+    """Giải đấu vòng tròn thật giữa các agent — thước đo sức mạnh đúng bản chất.
+
+    Mỗi cặp đấu ``num_games`` ván (đổi màu). Trả bảng đối đầu + điểm tổng (số ván
+    thắng trên toàn giải) để xếp hạng. Đây là cái nên dùng để khẳng định
+    "Hybrid > Minimax", thay cho điểm heuristic-1-nước của benchmark.
+
+    Args:
+        difficulty: Độ khó áp cho cả ba agent.
+        board_size: Kích thước bàn cờ.
+        num_games: Số ván mỗi cặp.
+        keys: Tên các agent tham gia.
+        tactical_config: Luật chiến thuật tuỳ chọn (None = mặc định).
+
+    Returns:
+        Dict gồm ``matrix`` (win-rate A so với từng đối thủ), ``standings``
+        (tổng thắng, xếp hạng) và ``ranking`` (danh sách key theo thứ tự mạnh→yếu).
+    """
+    from ai.factory import create_agent
+
+    type_map = {
+        "minimax": AIType.MINIMAX,
+        "dqn": AIType.DQN,
+        "hybrid": AIType.HYBRID,
+    }
+    agents: dict[str, Agent] = {
+        k: create_agent(type_map[k], difficulty, board_size, tactical_config)  # type: ignore[arg-type]
+        for k in keys
+    }
+
+    matrix: dict[str, dict[str, dict[str, int | float]]] = {k: {} for k in keys}
+    total_wins: dict[str, int] = {k: 0 for k in keys}
+    total_games: dict[str, int] = {k: 0 for k in keys}
+
+    for i, a in enumerate(keys):
+        for b in keys[i + 1 :]:
+            res = play_match_agents(agents[a], agents[b], num_games, board_size)
+            matrix[a][b] = {**res}
+            matrix[b][a] = {
+                "games": res["games"],
+                "wins_a": res["wins_b"],
+                "wins_b": res["wins_a"],
+                "draws": res["draws"],
+                "win_rate_a": res["win_rate_b"],
+                "win_rate_b": res["win_rate_a"],
+            }
+            total_wins[a] += int(res["wins_a"])
+            total_wins[b] += int(res["wins_b"])
+            total_games[a] += num_games
+            total_games[b] += num_games
+
+    ranking = sorted(keys, key=lambda k: total_wins[k], reverse=True)
+    standings = {
+        k: {
+            "total_wins": total_wins[k],
+            "total_games": total_games[k],
+            "win_rate": total_wins[k] / total_games[k] if total_games[k] else 0.0,
+            "rank": ranking.index(k) + 1,
+            "name": agents[k].name,
+        }
+        for k in keys
+    }
+    return {
+        "difficulty": difficulty.name,
+        "board_size": board_size,
+        "num_games_per_pair": num_games,
+        "matrix": matrix,
+        "standings": standings,
+        "ranking": list(ranking),
+        "winner": ranking[0] if ranking else None,
+    }
+
+
 def play_match(
     agent_a: str,
     agent_b: str,

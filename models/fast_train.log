@@ -1,0 +1,75 @@
+>>> PHASE 1: vs Minimax d=1, 400 ep
+============================================================
+  HUẤN LUYỆN DQN — AI CỜ CARO
+============================================================
+  Bàn cờ     : 15x15
+  Chế độ     : vs Minimax (depth=1)
+  Episodes   : 400
+  Save gate  : bật
+  Thiết bị   : tự phát hiện
+  Checkpoint : /Users/hugo/Documents/school/AI/DoAn/models/dqn_15.pth
+============================================================
+[Ep    50] ε=0.050 | loss=0.0012 | buf=11183 | X thắng=0.0% | R_X=-0.32
+[Ep   100] ε=0.050 | loss=0.0034 | buf=22094 | X thắng=1.0% | R_X=+0.40
+[Ep   150] ε=0.050 | loss=0.0035 | buf=33295 | X thắng=0.7% | R_X=+1.12
+[Ep   200] ε=0.050 | loss=0.0023 | buf=44545 | X thắng=0.5% | R_X=+0.52
+  → Eval ep 200: DQN thắng 0.0% | benchmark TH 100% | best 0.0%
+[Ep   250] ε=0.050 | loss=0.0017 | buf=54815 | X thắng=3.2% | R_X=+0.15
+[Ep   300] ε=0.050 | loss=0.0015 | buf=65572 | X thắng=3.7% | R_X=+0.76
+[Ep   350] ε=0.050 | loss=0.0010 | buf=76682 | X thắng=3.4% | R_X=+0.76
+[Ep   400] ε=0.050 | loss=0.0011 | buf=87817 | X thắng=3.0% | R_X=-0.44
+  → Eval ep 400: DQN thắng 0.0% | benchmark TH 100% | best 0.0%
+============================================================
+  HOÀN TẤT HUẤN LUYỆN
+  Thời gian  : 7407.5s
+  Episodes   : 400
+  Tổng bước  : 87817
+  X thắng    : 3.0%
+  Best eval  : 0.0%
+  Model      : /Users/hugo/Documents/school/AI/DoAn/models/dqn_15.pth
+============================================================
+=== PHASE1 DONE ===
+>>> PHASE 2: self-play, 800 ep
+============================================================
+  HUẤN LUYỆN DQN — AI CỜ CARO
+============================================================
+  Bàn cờ     : 15x15
+  Chế độ     : Self-play
+  Episodes   : 800
+  Save gate  : bật
+  Thiết bị   : tự phát hiện
+  Checkpoint : /Users/hugo/Documents/school/AI/DoAn/models/dqn_15.pth
+============================================================
+Nạp best checkpoint: /Users/hugo/Documents/school/AI/DoAn/models/dqn_15.best.pth
+[Ep    50] ε=0.050 | loss=0.0009 | buf=10991 | X thắng=0.0% | R_X=+0.99
+[Ep   100] ε=0.050 | loss=0.0012 | buf=22102 | X thắng=0.0% | R_X=+1.60
+[Ep   150] ε=0.050 | loss=0.0013 | buf=33352 | X thắng=0.0% | R_X=+0.40
+[Ep   200] ε=0.050 | loss=0.0013 | buf=44464 | X thắng=0.0% | R_X=+0.87
+  → Eval ep 200: DQN thắng 0.0% | benchmark TH 100% | best 0.0%
+[Ep   250] ε=0.050 | loss=0.0017 | buf=55643 | X thắng=0.0% | R_X=+0.04
+[Ep   300] ε=0.050 | loss=0.0014 | buf=66893 | X thắng=0.0% | R_X=+0.76
+[Ep   350] ε=0.050 | loss=0.0017 | buf=77968 | X thắng=0.3% | R_X=+1.24
+[Ep   400] ε=0.050 | loss=0.0021 | buf=89085 | X thắng=0.5% | R_X=+1.60
+  → Eval ep 400: DQN thắng 0.0% | benchmark TH 100% | best 0.0%
+[Ep   450] ε=0.050 | loss=0.0017 | buf=100264 | X thắng=0.4% | R_X=+1.36
+[Ep   500] ε=0.050 | loss=0.0016 | buf=111437 | X thắng=0.4% | R_X=-0.32
+  → Đã lưu checkpoint: /Users/hugo/Documents/school/AI/DoAn/models/dqn_15.pth
+[Ep   550] ε=0.050 | loss=0.0012 | buf=122687 | X thắng=0.4% | R_X=+0.16
+[Ep   600] ε=0.050 | loss=0.0009 | buf=133682 | X thắng=0.5% | R_X=-0.20
+  → Eval ep 600: DQN thắng 0.0% | benchmark TH 100% | best 0.0%
+[Ep   650] ε=0.050 | loss=0.0010 | buf=144932 | X thắng=0.5% | R_X=+0.16
+[Ep   700] ε=0.050 | loss=0.0007 | buf=156182 | X thắng=0.4% | R_X=+0.52
+[Ep   750] ε=0.050 | loss=0.0007 | buf=167192 | X thắng=0.5% | R_X=+1.36
+[Ep   800] ε=0.050 | loss=0.0006 | buf=178442 | X thắng=0.5% | R_X=+1.24
+  → Eval ep 800: DQN thắng 0.0% | benchmark TH 100% | best 0.0%
+============================================================
+  HOÀN TẤT HUẤN LUYỆN
+  Thời gian  : 7518.5s
+  Episodes   : 800
+  Tổng bước  : 178442
+  X thắng    : 0.5%
+  Best eval  : 0.0%
+  Model      : /Users/hugo/Documents/school/AI/DoAn/models/dqn_15.pth
+============================================================
+=== PHASE2 DONE ===
+>>> ALL DONE

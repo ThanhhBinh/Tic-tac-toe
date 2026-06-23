@@ -42,6 +42,17 @@
   gap: 12px;
 }
 
+.cache-status {
+  flex: 1 1 100%;
+  margin: 4px 0 0;
+  font-size: 0.85rem;
+  color: var(--accent, #4ade80);
+}
+
+.cache-status.hidden {
+  display: none;
+}
+
 .field-inline {
   min-width: 120px;
 }
@@ -196,6 +207,18 @@
   font-weight: 700;
   color: var(--accent);
   font-size: 1.1rem;
+}
+
+.score-breakdown {
+  grid-column: 1 / -1;
+  margin: 0.35rem 0 0;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
+.score-breakdown strong {
+  color: var(--warm);
 }
 
 .rank-badge {
@@ -420,3 +443,115 @@
 .rank-pill.rank-1 { color: var(--warm); }
 .rank-pill.rank-2 { color: var(--text-muted); }
 .rank-pill.rank-3 { color: #a08060; }
+
+.strength-headline {
+  margin-top: 8px;
+  font-size: 0.95rem;
+  color: var(--warm);
+  font-weight: 500;
+}
+
+.overview-section {
+  padding: 20px 24px;
+  margin-bottom: 20px;
+}
+
+.overview-section h3 {
+  margin: 0 0 8px;
+  font-size: 1.1rem;
+}
+
+.overview-lead {
+  margin: 0 0 16px;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.overview-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+@media (max-width: 800px) {
+  .overview-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.overview-card {
+  padding: 14px;
+  border-radius: 12px;
+  background: var(--surface);
+  border: 1px solid var(--glass-border);
+}
+
+.overview-card h4 {
+  margin: 0 0 10px;
+  font-size: 0.88rem;
+  color: var(--text-muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.pairwise-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.84rem;
+}
+
+.pairwise-table th,
+.pairwise-table td {
+  padding: 6px 8px;
+  text-align: center;
+  border-bottom: 1px solid var(--glass-border);
+}
+
+.pairwise-table th {
+  color: var(--text-muted);
+  font-weight: 500;
+  font-size: 0.78rem;
+}
+
+.pairwise-table .win-cell {
+  font-weight: 700;
+  color: var(--win);
+}
+
+.overview-note {
+  margin: 10px 0 0;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.roles-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.role-row {
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.role-row strong {
+  display: block;
+  margin-bottom: 2px;
+}
+
+.role-row span {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+
+.overview-metrics {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  line-height: 1.55;
+}

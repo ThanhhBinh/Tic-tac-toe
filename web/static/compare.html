@@ -51,10 +51,10 @@
             <span>Bộ TH</span>
             <select id="scenario_set" name="scenario_set">
               <option value="basic" selected>
-                Tiêu chuẩn (3 chiến thuật + 7 chiến lược)
+                Tiêu chuẩn (3 chiến thuật + 7 ván thực)
               </option>
               <option value="advanced">
-                Nâng cao (10 TH chiến lược phức tạp)
+                Nâng cao (10 ván thực — mid/endgame)
               </option>
               <option value="all">Tất cả (20 TH)</option>
             </select>
@@ -76,6 +76,7 @@
             Chạy benchmark
           </button>
         </form>
+        <p id="cache-status" class="cache-status hidden" aria-live="polite"></p>
       </header>
 
       <div id="loading-panel" class="compare-loading glass hidden">
@@ -98,7 +99,25 @@
           <div>
             <h2 id="winner-title">—</h2>
             <p id="winner-headline">—</p>
+            <p id="strength-headline" class="strength-headline">—</p>
           </div>
+        </section>
+
+        <section class="overview-section glass hidden" id="overview-section">
+          <h3>Tổng quan — đọc nhanh</h3>
+          <p class="overview-lead" id="overview-lead"></p>
+          <div class="overview-grid">
+            <div class="overview-card">
+              <h4>Đối đầu trực tiếp (chất lượng nước đi)</h4>
+              <table class="pairwise-table" id="pairwise-table"></table>
+              <p class="overview-note" id="pairwise-note"></p>
+            </div>
+            <div class="overview-card">
+              <h4>Vai trò từng thuật toán</h4>
+              <div id="roles-list" class="roles-list"></div>
+            </div>
+          </div>
+          <ul class="overview-metrics" id="overview-metrics"></ul>
         </section>
 
         <section class="charts-grid">

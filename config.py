@@ -55,6 +55,18 @@ DQN_REWARD_OPEN_FOUR: float = 0.35
 DQN_REWARD_OPEN_THREE: float = 0.12
 DQN_REWARD_STEP: float = -0.005
 
+# Mức can thiệp của luật tactical cho LEARNER (quân DQN học) khi HUẤN LUYỆN.
+# Đây là tham số then chốt: trước đây learner luôn dùng full tactical nên các
+# nước quyết định (thắng/chặn/tấn công) đều do heuristic xử → mạng gần như
+# KHÔNG có gì để học, self-play hoà 100% → win-rate ~0%.
+#   "full" = dùng toàn bộ luật như khi chơi (cũ) — mạng học rất kém.
+#   "safe" = chỉ tự ăn nước thắng-ngay + chặn-thua-ngay; còn lại mạng tự quyết
+#            → buộc mạng học tạo/đỡ đe doạ tầm xa, self-play có thắng/thua thật
+#            → có tín hiệu để học (KHUYẾN NGHỊ).
+#   "none" = không can thiệp, mạng học từ con số 0 (cần rất nhiều ván).
+# Lưu ý: chỉ ảnh hưởng lúc TRAIN. Khi CHƠI, DQNAgent vẫn dùng full tactical.
+DQN_TRAIN_TACTICAL_LEVEL: str = "safe"
+
 # Các kích thước bàn cờ cho phép người chơi chọn.
 BOARD_SIZES: tuple[int, ...] = (3, 5, 7, 10, 15)
 DEFAULT_BOARD_SIZE: int = 15
@@ -188,13 +200,34 @@ ONLINE_LOSS_HISTORY_SIZE: int = 10
 # Double DQN khi tính target Q (giảm overestimate).
 DQN_USE_DOUBLE_DQN: bool = True
 
-# Hybrid: depth GIỚI HẠN thấp hơn Minimax thuần vì mỗi node lá chạy forward DQN.
-# Expert=3 (KHÔNG dùng 4) — depth 4 + DQN khiến UI treo hàng chục giây/phút.
+# Hybrid MẠNH HƠN Minimax thật sự nhờ TÌM SÂU HƠN 1 ply (depth+1), trong đó
+# DQN + heuristic sắp xếp nước (move ordering) giúp alpha-beta cắt tỉa sớm để
+# bù chi phí của ply phụ. Đo bằng đối kháng thật (head-to-head), KHÔNG phải điểm
+# heuristic-1-nước của benchmark (thước đo đó thiên vị nước có heuristic tức thời
+# cao, nên search sâu hơn đôi khi bị chấm thấp dù mạnh hơn khi đánh thật).
+HYBRID_EXTRA_DEPTH: int = 1
+HYBRID_MAX_DEPTH: int = 5
+
+# Iterative deepening: ngân sách thời gian (giây) cho MỖI nước khi chơi tương tác.
+# None = tìm hết độ sâu (tất định, dùng trong test trực tiếp & benchmark). Agent
+# tạo qua ``from_difficulty`` (UI/web) nhận ngân sách này để không vượt
+# ``AI_MOVE_TIMEOUT_SEC`` ở độ sâu lớn — luôn trả nước tốt nhất tới thời điểm cắt.
+MINIMAX_PLAY_TIME_BUDGET_SEC: float = 5.0
+HYBRID_PLAY_TIME_BUDGET_SEC: float = 6.0
+# Budget thêm cho Hybrid trong benchmark (search rộng hơn Minimax cùng depth).
+HYBRID_BENCHMARK_BRANCH_BONUS: int = 6
+HYBRID_BENCHMARK_RADIUS_BONUS: int = 1
+def hybrid_depth_for(difficulty: Difficulty) -> int:
+    """Độ sâu Hybrid = Minimax cùng mức + EXTRA, giới hạn MAX."""
+    return min(int(difficulty) + HYBRID_EXTRA_DEPTH, HYBRID_MAX_DEPTH)
+
+
+# Legacy map (tham chiếu UI cũ); depth thực tế lấy từ ``hybrid_depth_for``.
 HYBRID_DEPTH_BY_DIFFICULTY: dict[Difficulty, int] = {
-    Difficulty.EASY: 1,
-    Difficulty.MEDIUM: 2,
-    Difficulty.HARD: 2,
-    Difficulty.EXPERT: 3,
+    Difficulty.EASY: hybrid_depth_for(Difficulty.EASY),
+    Difficulty.MEDIUM: hybrid_depth_for(Difficulty.MEDIUM),
+    Difficulty.HARD: hybrid_depth_for(Difficulty.HARD),
+    Difficulty.EXPERT: hybrid_depth_for(Difficulty.EXPERT),
 }
 
 # Giới hạn số nhánh mở rộng mỗi node (giảm mũ số node lá → DQN nhanh hơn).
@@ -219,6 +252,12 @@ HYBRID_LEAF_HEURISTIC_WEIGHT: float = 0.55
 HYBRID_ROOT_REFINE_CANDIDATES: int = 12
 # Chỉ đổi nước minimax nếu điểm trộn cao hơn ít nhất tỷ lệ này (tránh nhiễu DQN).
 HYBRID_ROOT_REFINE_MIN_GAIN: float = 1.02
+
+# Hybrid: DQN chỉ phá hoà khi Minimax score gần như bằng nhau (margin rất nhỏ).
+# Margin lớn (60) khiến DQN yếu chọn nước "gần tối ưu" nhưng heuristic thấp hơn
+# → Hybrid tụt hạng dưới Minimax sau khi train. Giữ margin ≈ 0.
+HYBRID_TIE_REL_MARGIN: float = 0.0
+HYBRID_TIE_ABS_MARGIN: float = 1.0
 
 # Thời gian tối đa chờ AI (giây) trước khi fallback nước đi an toàn.
 AI_MOVE_TIMEOUT_SEC: float = 45.0

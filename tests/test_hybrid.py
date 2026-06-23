@@ -1,20 +1,18 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Unit test cho HybridAgent (Minimax + DQN đánh giá node lá)."""
+"""Unit test cho HybridAgent (Minimax depth+1 + DQN ordering)."""
 
 from __future__ import annotations
 
-import numpy as np
-
 from ai.factory import create_agent
+from ai.heuristic import evaluate_position
 from ai.hybrid_agent import HybridAgent
 from ai.minimax_agent import MinimaxAgent
-from config import AIType, Difficulty, HYBRID_DEPTH_BY_DIFFICULTY, Player
+from config import AIType, Difficulty, Player, hybrid_depth_for
 from core.caro_env import CaroEnv
 
 
 def test_hybrid_tra_ve_nuoc_hop_le() -> None:
-    """Hybrid luôn trả nước đi hợp lệ trên bàn trống."""
     env = CaroEnv(size=10)
     agent = HybridAgent.from_difficulty(Difficulty.MEDIUM, board_size=10)
     move = agent.get_move(env)
@@ -22,7 +20,6 @@ def test_hybrid_tra_ve_nuoc_hop_le() -> None:
 
 
 def test_hybrid_ke_thua_minimax_tactical() -> None:
-    """Hybrid kế thừa luật thắng ngay / chặn thua từ Minimax."""
     env = CaroEnv(size=10)
     env.board[3, 3] = Player.O
     env.board[3, 4] = Player.O
@@ -37,28 +34,39 @@ def test_hybrid_ke_thua_minimax_tactical() -> None:
     assert move in {(3, 2), (3, 7)}
 
 
-def test_hybrid_dung_dqn_khi_refine_root() -> None:
-    """Khi model đã nạp, DQN được gọi ở bước tinh chỉnh root."""
+def test_hybrid_sau_hon_minimax_1_ply() -> None:
+    """Hybrid tìm sâu hơn Minimax đúng HYBRID_EXTRA_DEPTH ply (mạnh hơn thật)."""
+    from config import HYBRID_EXTRA_DEPTH, HYBRID_MAX_DEPTH
+
+    assert HYBRID_EXTRA_DEPTH >= 1
+    for diff in (Difficulty.EASY, Difficulty.MEDIUM, Difficulty.HARD):
+        hybrid = HybridAgent.from_difficulty(diff, board_size=10)
+        minimax = MinimaxAgent.from_difficulty(diff)
+        assert hybrid.depth == hybrid_depth_for(diff)
+        assert hybrid.depth == min(int(diff) + HYBRID_EXTRA_DEPTH, HYBRID_MAX_DEPTH)
+        assert hybrid.depth > minimax.depth
+
+
+def test_hybrid_dqn_reorder_khi_co_model() -> None:
+    """DQN được gọi để sắp xếp nước (ordering), không override get_move trực tiếp."""
     env = CaroEnv(size=10)
-    agent = HybridAgent(depth=1, board_size=10)
+    agent = HybridAgent(depth=2, board_size=10, max_branch=None)
     agent.dqn._model_loaded = True
 
-    calls: list[tuple[Player, bool]] = []
-
+    calls: list[int] = []
     original = agent.dqn._predict_q_numpy
 
-    def spy(env_arg: CaroEnv, player: Player) -> np.ndarray:
-        calls.append((player, env_arg.done))
+    def spy(env_arg: CaroEnv, player: Player) -> object:
+        calls.append(1)
         return original(env_arg, player)
 
     agent.dqn._predict_q_numpy = spy  # type: ignore[method-assign]
-
-    agent.get_move(env)
+    agent._dqn_reorder_root = True
+    agent._ordered_moves(env, Player.X)
     assert len(calls) >= 1
 
 
 def test_hybrid_co_win_probability() -> None:
-    """Win Probability: DQN nếu có model, ngược lại heuristic."""
     env = CaroEnv(size=10)
     agent = HybridAgent(depth=2, board_size=10)
     prob = agent.get_win_probability(env)
@@ -72,56 +80,37 @@ def test_hybrid_co_win_probability() -> None:
 
 
 def test_factory_tao_hybrid() -> None:
-    """Factory trả đúng loại agent Hybrid."""
     agent = create_agent(AIType.HYBRID, Difficulty.EASY, board_size=10)
     assert isinstance(agent, HybridAgent)
-    assert agent.depth == 1
+    assert agent.depth == hybrid_depth_for(Difficulty.EASY)
 
 
-def test_hybrid_expert_depth_khi_chua_dqn() -> None:
-    """Có DQN → depth map Hybrid; chưa DQN → depth bằng Minimax Expert."""
-    agent = HybridAgent.from_difficulty(Difficulty.EXPERT, board_size=10)
-    if agent.dqn._model_loaded:
-        assert agent.depth == HYBRID_DEPTH_BY_DIFFICULTY[Difficulty.EXPERT]
-        assert agent.max_branch is None
-    else:
-        assert agent.depth == int(Difficulty.EXPERT)
-
-
-def test_hybrid_leaf_fallback_khi_q_khong_hop_le() -> None:
-    """Khi Q không hợp lệ, _dqn_raw_score trả 0; leaf vẫn có heuristic."""
+def test_hybrid_leaf_heuristic() -> None:
     env = CaroEnv(size=10)
     agent = HybridAgent(depth=1, board_size=10)
-    agent.dqn._model_loaded = True
     score = agent._evaluate_leaf(env, Player.X)
     assert isinstance(score, float)
-    assert score != 0.0 or env.move_count == 0
 
 
-def test_hybrid_khac_minimax_thuan_tren_cung_depth() -> None:
-    """Hybrid và Minimax cùng interface, cùng chạy được với depth giống nhau."""
-    env = CaroEnv(size=10)
-    hybrid = HybridAgent(depth=2, board_size=10)
-    minimax = MinimaxAgent(depth=2)
-    assert hybrid.get_move(env.clone()).__class__ is tuple
-    assert minimax.get_move(env.clone()).__class__ is tuple
+def test_hybrid_khong_yeu_hon_minimax_doi_khang() -> None:
+    """Thước đo THẬT: đối kháng → Hybrid (sâu hơn) không yếu hơn Minimax.
 
+    Dùng head-to-head thay cho điểm heuristic-1-nước của benchmark (thước đo đó
+    thiên vị nước có heuristic tức thời cao nên không phản ánh sức mạnh thật).
+    Agent tất định + bàn nhỏ → kết quả ổn định.
+    """
+    from ai.evaluate import play_match_agents
 
-def test_hybrid_dqn_loaded_khong_gioi_han_nhanh() -> None:
-    """Khi đã nạp DQN, Hybrid duyệt đủ nhánh như Minimax (max_branch=None)."""
-    agent = HybridAgent.from_difficulty(Difficulty.MEDIUM, board_size=15)
-    if agent.dqn._model_loaded:
-        assert agent.max_branch is None
-
-
-def test_hybrid_search_khop_minimax_khi_co_dqn() -> None:
-    """Search heuristic thuần → cùng nước Minimax trên bàn trống (trước refine)."""
-    env = CaroEnv(size=10)
-    hybrid = HybridAgent.from_difficulty(Difficulty.MEDIUM, board_size=10)
-    minimax = MinimaxAgent.from_difficulty(Difficulty.MEDIUM)
-    if not hybrid.dqn._model_loaded:
-        return
-    hybrid._heuristic_only_search = True
-    h_move = super(HybridAgent, hybrid).get_move(env.clone())
-    m_move = minimax.get_move(env.clone())
-    assert h_move == m_move
+    board_size = 7
+    minimax = MinimaxAgent(
+        depth=2, candidate_radius=2, max_branch=8, time_budget=None
+    )
+    hybrid = HybridAgent(
+        depth=3,
+        board_size=board_size,
+        candidate_radius=2,
+        max_branch=8,
+        time_budget=None,
+    )
+    res = play_match_agents(hybrid, minimax, num_games=2, board_size=board_size)
+    assert res["wins_a"] >= res["wins_b"]

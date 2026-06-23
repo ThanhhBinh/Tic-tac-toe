@@ -14,10 +14,12 @@ from pydantic import BaseModel, Field
 
 from config import AIType, Difficulty, GameMode, BOARD_SIZES, create_caro_env
 from ai.benchmark import run_benchmark
+from web.benchmark_store import BenchmarkCache
 from web.session import GameSession, SessionSettings, SessionStore
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 store = SessionStore()
+benchmark_cache = BenchmarkCache()
 
 app = FastAPI(
     title="AI Cờ Caro",
@@ -54,6 +56,10 @@ class CompareRequest(BaseModel):
     double_end_block_rule: bool = Field(default=True)
     ai_aggressive: bool = Field(default=True)
     scenario_set: str = Field(default="basic")
+    force: bool = Field(
+        default=False,
+        description="True = bỏ cache DB và chạy lại benchmark (mặc định dùng bản đã lưu).",
+    )
 
 
 def _parse_mode(value: str) -> GameMode:
@@ -198,26 +204,85 @@ async def delete_game(session_id: str) -> dict[str, str]:
     return {"status": "ok"}
 
 
+def _compare_cache_key(body: CompareRequest) -> str:
+    return BenchmarkCache.make_key(
+        body.scenario_set,
+        body.difficulty,
+        body.board_size,
+        body.double_end_block_rule,
+        body.ai_aggressive,
+    )
+
+
+@app.get("/api/compare/result")
+async def get_compare_result(
+    scenario_set: str = "basic",
+    difficulty: str = "MEDIUM",
+    board_size: int = 15,
+    double_end_block_rule: bool = True,
+    ai_aggressive: bool = True,
+) -> dict[str, Any]:
+    """Lấy kết quả benchmark đã lưu trong DB (404 nếu chưa chạy)."""
+    key = BenchmarkCache.make_key(
+        scenario_set,
+        difficulty,
+        _parse_board_size(board_size),
+        double_end_block_rule,
+        ai_aggressive,
+    )
+    cached = benchmark_cache.get(key)
+    if cached is None:
+        raise HTTPException(status_code=404, detail="Chưa có kết quả benchmark cho cấu hình này.")
+    return cached
+
+
 @app.post("/api/compare/run")
 async def run_compare(body: CompareRequest) -> dict[str, Any]:
-    """Chạy 10 TH benchmark — cả 3 agent trên cùng thế cờ."""
+    """Chạy benchmark hoặc trả bản đã lưu trong DB (mặc định không chạy lại)."""
+    import time
+
     from config import TacticalConfig
 
     try:
         difficulty = _parse_difficulty(body.difficulty)
     except HTTPException:
         raise
+
+    board_size = _parse_board_size(body.board_size)
+    cache_key = _compare_cache_key(body)
+
+    if not body.force:
+        cached = benchmark_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
     tactical = TacticalConfig(
         double_end_block_rule=body.double_end_block_rule,
         aggressive=body.ai_aggressive,
         threat_warnings=True,
     )
-    return run_benchmark(
+    started = time.perf_counter()
+    result = run_benchmark(
         difficulty=difficulty,
-        board_size=_parse_board_size(body.board_size),
+        board_size=board_size,
         tactical=tactical,
         scenario_set=body.scenario_set,
     )
+    elapsed_ms = (time.perf_counter() - started) * 1000.0
+    benchmark_cache.save(
+        cache_key,
+        scenario_set=body.scenario_set,
+        difficulty=body.difficulty,
+        board_size=board_size,
+        double_end_block_rule=body.double_end_block_rule,
+        ai_aggressive=body.ai_aggressive,
+        result=result,
+        run_elapsed_ms=elapsed_ms,
+    )
+    result["from_cache"] = False
+    result["cache_key"] = cache_key
+    result["run_elapsed_ms"] = round(elapsed_ms, 1)
+    return result
 
 
 class LearnCompareRequest(BaseModel):

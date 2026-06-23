@@ -49,5 +49,5 @@ def test_run_benchmark_structure() -> None:
 
 def test_tactical_cases_co_dap_an() -> None:
     tactical = [s for s in BENCHMARK_SCENARIOS if s.expected is not None]
-    assert len(tactical) == 3  # TH01-03: tactical; TH04-10: strategic (no expected)
+    assert len(tactical) == 3  # TH01-03: tactical; TH04-10: replay ván thực
     assert BENCHMARK_SCENARIOS[-1].expected is None

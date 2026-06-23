@@ -108,14 +108,15 @@ class DQNAgent(Agent):
         """
         player = env.current_player
 
-        tactical = find_tactical_move(
-            env,
-            player,
-            radius=2,
-            config=self.tactical_config,
-        )
-        if tactical is not None:
-            return tactical
+        if not getattr(self, "search_only", False):
+            tactical = find_tactical_move(
+                env,
+                player,
+                radius=2,
+                config=self.tactical_config,
+            )
+            if tactical is not None:
+                return tactical
 
         legal = env.candidate_moves(radius=2) or env.legal_moves()
         if not legal:
@@ -227,7 +228,19 @@ class DQNAgent(Agent):
                 f"Checkpoint bàn {saved_size}x{saved_size} không khớp agent "
                 f"{self.board_size}x{self.board_size}."
             )
-        self.network.load_state_dict(checkpoint["state_dict"])
+        try:
+            self.network.load_state_dict(checkpoint["state_dict"])
+        except (RuntimeError, KeyError) as exc:
+            # Checkpoint cũ (kiến trúc head Linear) không khớp Q-head 1×1 mới.
+            # Bỏ qua an toàn → agent chạy bằng tactical + heuristic cho tới khi
+            # huấn luyện lại. Xoá file .pth cũ rồi train lại để dùng DQN.
+            print(
+                f"[DQN] Bỏ qua checkpoint không tương thích ({path.name}): {exc}. "
+                "Hãy huấn luyện lại model với kiến trúc mới.",
+                flush=True,
+            )
+            self._model_loaded = False
+            return
         self.network.eval()
         self._model_loaded = True
 

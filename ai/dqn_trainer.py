@@ -21,7 +21,13 @@ from ai.board_encoder import encode_board, legal_action_mask, move_to_action
 from ai.dqn_agent import resolve_device
 from ai.dqn_model import DQNNetwork
 from ai.replay_buffer import ReplayBuffer, Transition
-from ai.heuristic import _is_four_with_open_end, _is_open_three_at, find_tactical_move
+from ai.heuristic import (
+    _is_four_with_open_end,
+    _is_open_three_at,
+    find_blocking_move,
+    find_tactical_move,
+    find_winning_move,
+)
 from config import (
     DQN_BATCH_SIZE,
     DQN_EPSILON_DECAY,
@@ -35,6 +41,7 @@ from config import (
     DQN_REWARD_STEP,
     DQN_TARGET_SYNC_EVERY,
     DQN_TRAIN_EVERY,
+    DQN_TRAIN_TACTICAL_LEVEL,
     DQN_USE_DOUBLE_DQN,
     Player,
     TacticalConfig,
@@ -88,6 +95,7 @@ class DQNTrainer:
         batch_size: int = DQN_BATCH_SIZE,
         buffer_capacity: int = 50_000,
         seed: int | None = None,
+        train_tactical_level: str = DQN_TRAIN_TACTICAL_LEVEL,
     ) -> None:
         """Khởi tạo mạng Q, mạng target và replay buffer.
 
@@ -99,10 +107,15 @@ class DQNTrainer:
             batch_size: Kích thước mini-batch.
             buffer_capacity: Sức chứa replay buffer.
             seed: Hạt giống ngẫu nhiên PyTorch/numpy.
+            train_tactical_level: ``"full"`` | ``"safe"`` | ``"none"`` — mức luật
+                tactical can thiệp cho learner khi train (xem config). ``"safe"``
+                (mặc định) chỉ tự ăn thắng-ngay + chặn-thua-ngay để mạng tự học
+                phần còn lại.
         """
         self.board_size = board_size
         self.gamma = gamma
         self.batch_size = batch_size
+        self.train_tactical_level = train_tactical_level
         self.device = resolve_device(device)
 
         if seed is not None:
@@ -197,9 +210,7 @@ class DQNTrainer:
         if opponent is not None and player is Player.O:
             return opponent.get_move(env)
 
-        tactical = find_tactical_move(
-            env, player, radius=2, config=TacticalConfig(aggressive=True)
-        )
+        tactical = self._training_tactical(env, player)
         if tactical is not None:
             return tactical
 
@@ -219,6 +230,34 @@ class DQNTrainer:
         action = int(np.argmax(q))
         row, col = action // self.board_size, action % self.board_size
         return (row, col)
+
+    def _training_tactical(
+        self, env: CaroEnv, player: Player
+    ) -> tuple[int, int] | None:
+        """Luật tactical cho learner khi train, theo ``train_tactical_level``.
+
+        - ``"none"``: không can thiệp — mạng tự quyết hoàn toàn.
+        - ``"safe"``: chỉ tự ăn nước thắng-ngay + chặn-thua-ngay; phần còn lại
+          (tạo/đỡ đe doạ tầm xa) để MẠNG học → self-play có thắng/thua thật.
+        - ``"full"``: dùng toàn bộ luật như khi chơi (mạng học rất ít).
+        """
+        level = self.train_tactical_level
+        if level == "none":
+            return None
+
+        win = find_winning_move(env, player, radius=2)
+        if win is not None:
+            return win
+        block = find_blocking_move(env, player, radius=2)
+        if block is not None:
+            return block
+
+        if level == "safe":
+            return None
+
+        return find_tactical_move(
+            env, player, radius=2, config=TacticalConfig(aggressive=True)
+        )
 
     @staticmethod
     def _compute_reward(env: CaroEnv, player: Player, move: tuple[int, int]) -> float:
@@ -261,6 +300,11 @@ class DQNTrainer:
         q_values = self.policy_net(states).gather(1, actions.unsqueeze(1)).squeeze(1)
 
         with torch.no_grad():
+            # next_state được mã hoá theo góc nhìn ĐỐI THỦ (người sắp đi sau khi
+            # ta vừa đi). Trong cờ tổng-bằng-không, giá trị tốt cho đối thủ là
+            # xấu cho ta → backup negamax: Q(s,a) = r − γ·max_a' Q(s', a').
+            # (Trước đây dùng dấu '+' khiến mạng học mục tiêu tự mâu thuẫn và
+            #  loss phân kỳ — đây là lỗi gốc khiến DQN không học được.)
             if DQN_USE_DOUBLE_DQN:
                 next_actions = self.policy_net(next_states).argmax(dim=1)
                 next_q = (
@@ -270,7 +314,7 @@ class DQNTrainer:
                 )
             else:
                 next_q = self.target_net(next_states).max(dim=1).values
-            targets = rewards + self.gamma * next_q * (1.0 - dones)
+            targets = rewards - self.gamma * next_q * (1.0 - dones)
 
         loss = self.loss_fn(q_values, targets)
         self.optimizer.zero_grad()
@@ -327,8 +371,20 @@ class DQNTrainer:
                 f"Checkpoint bàn {saved_size}x{saved_size} không khớp trainer "
                 f"{self.board_size}x{self.board_size}."
             )
-        self.policy_net.load_state_dict(checkpoint["state_dict"])
-        self.target_net.load_state_dict(checkpoint["state_dict"])
+        try:
+            self.policy_net.load_state_dict(checkpoint["state_dict"])
+            self.target_net.load_state_dict(checkpoint["state_dict"])
+        except (RuntimeError, KeyError) as exc:
+            # Checkpoint cũ không khớp kiến trúc mới → bắt đầu từ trọng số ngẫu
+            # nhiên thay vì sập. Hãy xoá .pth cũ trước khi train lại để tránh nhầm.
+            print(
+                f"[DQN] Checkpoint {path.name} không tương thích kiến trúc mới "
+                f"({exc}). Bắt đầu huấn luyện từ đầu.",
+                flush=True,
+            )
+            self.policy_net.train()
+            self.target_net.eval()
+            return
         self.policy_net.train()
         self.target_net.eval()
 

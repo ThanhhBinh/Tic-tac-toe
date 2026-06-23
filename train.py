@@ -131,6 +131,16 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Tắt thanh tiến độ (dùng khi chạy trong CI hoặc redirect log).",
     )
     parser.add_argument(
+        "--train-tactical",
+        choices=("full", "safe", "none"),
+        default=None,
+        help=(
+            "Mức luật tactical cho learner khi train. 'safe' (mặc định config) "
+            "chỉ tự ăn thắng-ngay + chặn-thua-ngay để MẠNG tự học phần còn lại — "
+            "đây là yếu tố then chốt giúp DQN học được (đừng dùng 'full')."
+        ),
+    )
+    parser.add_argument(
         "--phase-label",
         type=str,
         default=None,
@@ -237,6 +247,10 @@ def run_training(
     else:
         eval_depth = int(Difficulty.MEDIUM)
 
+    from config import DQN_TRAIN_TACTICAL_LEVEL
+
+    tactical_level = getattr(args, "train_tactical", None) or DQN_TRAIN_TACTICAL_LEVEL
+
     print("=" * 60)
     print("  HUẤN LUYỆN DQN — AI CỜ CARO")
     print("=" * 60)
@@ -244,15 +258,16 @@ def run_training(
     print(f"  Chế độ     : {mode_label}")
     print(f"  Episodes   : {args.episodes}")
     print(f"  Save gate  : {'bật' if use_gate else 'tắt'}")
+    print(f"  Tactical   : {tactical_level} (luật can thiệp learner khi train)")
     print(f"  Thiết bị   : {args.device or 'tự phát hiện'}")
     print(f"  Checkpoint : {output}")
     print("=" * 60)
-
     trainer = DQNTrainer(
         board_size=board_size,
         device=args.device,
         buffer_capacity=DQN_BUFFER_CAPACITY,
         seed=args.seed,
+        train_tactical_level=tactical_level,
     )
 
     if args.resume:
