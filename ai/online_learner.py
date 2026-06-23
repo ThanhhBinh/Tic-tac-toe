@@ -15,9 +15,15 @@ from typing import Literal
 
 from ai.base_agent import Agent
 from ai.board_encoder import encode_board, move_to_action
-from ai.dqn_agent import DQNAgent
-from ai.dqn_trainer import DQNTrainer
-from ai.hybrid_agent import HybridAgent
+
+try:
+    from ai.dqn_agent import DQNAgent
+    from ai.dqn_trainer import DQNTrainer
+    from ai.hybrid_agent import HybridAgent
+except ModuleNotFoundError:
+    DQNAgent = None  # type: ignore[assignment,misc]
+    DQNTrainer = None  # type: ignore[assignment,misc]
+    HybridAgent = None  # type: ignore[assignment,misc]
 from ai.learning_inspector import (
     append_learn_log,
     backup_model_if_exists,
@@ -136,6 +142,8 @@ class GameMoveRecorder:
         """Lưu một nước AI vào bộ nhớ tạm của ván."""
         if self._invalidated:
             return
+        if DQNTrainer is None:
+            return  # torch unavailable — skip online recording
 
         state = encode_board(env_before.board, ai_player)
         action = move_to_action(move, env_before.size)

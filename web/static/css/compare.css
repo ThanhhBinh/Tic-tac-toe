@@ -95,6 +95,48 @@
   to { transform: rotate(360deg); }
 }
 
+/* ── Stale-data warning ──────────────────────────────────────────────────── */
+
+.stale-warning {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 14px 20px;
+  border-radius: 14px;
+  margin-bottom: 16px;
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  background: linear-gradient(135deg, rgba(251, 191, 36, 0.10), rgba(251, 191, 36, 0.04));
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.stale-warning.hidden {
+  display: none;
+}
+
+.stale-icon {
+  font-size: 1.5rem;
+  flex-shrink: 0;
+}
+
+.stale-body {
+  flex: 1;
+  min-width: 200px;
+}
+
+.stale-body strong {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--warm, #fbbf24);
+}
+
+.stale-body span {
+  color: var(--text-muted);
+}
+
+/* ── Winner banner ───────────────────────────────────────────────────────── */
+
 .winner-banner {
   display: flex;
   align-items: center;
@@ -119,6 +161,71 @@
   margin-top: 4px;
   font-size: 0.92rem;
 }
+
+/* ── Hybrid advantages section ───────────────────────────────────────────── */
+
+.hybrid-advantages {
+  padding: 20px 24px;
+  border-radius: 16px;
+  margin-bottom: 20px;
+  border: 1px solid rgba(251, 191, 36, 0.18);
+}
+
+.hybrid-advantages.hidden {
+  display: none;
+}
+
+.hybrid-adv-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.hybrid-adv-icon {
+  font-size: 1.4rem;
+}
+
+.hybrid-adv-header h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.hybrid-adv-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.hybrid-adv-item {
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--surface);
+  border: 1px solid var(--glass-border);
+  font-size: 0.84rem;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+.adv-tag {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  margin-bottom: 6px;
+  background: rgba(251, 191, 36, 0.15);
+  color: var(--warm, #fbbf24);
+  letter-spacing: 0.02em;
+}
+
+.adv-tag-warn {
+  background: rgba(248, 113, 113, 0.15);
+  color: var(--danger, #f87171);
+}
+
+/* ── Charts ──────────────────────────────────────────────────────────────── */
 
 .charts-grid {
   display: grid;
@@ -146,6 +253,8 @@
   max-height: 240px;
 }
 
+/* ── Summary cards ───────────────────────────────────────────────────────── */
+
 .summary-cards {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
@@ -156,6 +265,12 @@
 .agent-summary {
   padding: 18px;
   border-radius: 16px;
+  transition: box-shadow 0.2s;
+}
+
+.agent-summary-winner {
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.12), 0 4px 24px rgba(251, 191, 36, 0.08);
 }
 
 .agent-summary-head {
@@ -221,6 +336,14 @@
   color: var(--warm);
 }
 
+/* Cảnh báo timing bất thường (> 3000ms) */
+.time-warning {
+  color: var(--danger, #f87171);
+  font-weight: 600;
+}
+
+/* ── Rank badges ─────────────────────────────────────────────────────────── */
+
 .rank-badge {
   font-size: 0.72rem;
   font-weight: 700;
@@ -231,6 +354,8 @@
 .rank-gold { background: rgba(251, 191, 36, 0.2); color: var(--warm); }
 .rank-silver { background: rgba(180, 190, 210, 0.2); color: var(--text-muted); }
 .rank-bronze { background: rgba(180, 120, 80, 0.2); color: #c97a4a; }
+
+/* ── Eval section ────────────────────────────────────────────────────────── */
 
 .eval-section {
   padding: 22px 24px;
@@ -281,6 +406,8 @@
 
 .eval-good { background: rgba(74, 222, 128, 0.15); color: var(--win); }
 .eval-warn { background: rgba(248, 113, 113, 0.15); color: var(--danger); }
+
+/* ── Detail / scenario section ───────────────────────────────────────────── */
 
 .detail-section {
   padding: 22px 24px;
@@ -450,6 +577,8 @@
   color: var(--warm);
   font-weight: 500;
 }
+
+/* ── Overview section ────────────────────────────────────────────────────── */
 
 .overview-section {
   padding: 20px 24px;

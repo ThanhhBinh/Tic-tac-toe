@@ -4,6 +4,9 @@
 
 from __future__ import annotations
 
+import pytest
+pytest.importorskip("torch")
+
 from config import Difficulty, Player
 from core.caro_env import CaroEnv
 from ai.heuristic import (

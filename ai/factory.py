@@ -9,8 +9,6 @@ từng lớp agent cụ thể.
 from __future__ import annotations
 
 from ai.base_agent import Agent
-from ai.dqn_agent import DQNAgent
-from ai.hybrid_agent import HybridAgent
 from ai.minimax_agent import MinimaxAgent
 from config import DEFAULT_BOARD_SIZE, AIType, Difficulty, TacticalConfig
 
@@ -38,11 +36,13 @@ def create_agent(
         return MinimaxAgent.from_difficulty(difficulty, tactical_config=cfg)
 
     if ai_type is AIType.DQN:
+        from ai.dqn_agent import DQNAgent  # lazy — requires torch
         return DQNAgent.from_difficulty(
             difficulty, board_size=board_size, tactical_config=cfg
         )
 
     if ai_type is AIType.HYBRID:
+        from ai.hybrid_agent import HybridAgent  # lazy — requires torch via DQN
         return HybridAgent.from_difficulty(
             difficulty, board_size=board_size, tactical_config=cfg
         )

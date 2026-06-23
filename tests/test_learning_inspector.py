@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from ai.board_encoder import encode_board
 from ai.learning_inspector import (
@@ -90,6 +91,7 @@ def test_build_learn_log_record() -> None:
 
 def test_get_learning_status_smoke() -> None:
     """API status trả các trường cần cho dashboard."""
+    pytest.importorskip("torch")
     status = get_learning_status(10)
     assert "buffer_size" in status
     assert "has_backup" in status

@@ -75,9 +75,24 @@
           <button type="submit" class="btn btn-primary" id="btn-run">
             Chạy benchmark
           </button>
+          <button type="button" class="btn btn-ghost btn-sm" id="btn-force-run" title="Bỏ cache, chạy lại với thuật toán hiện tại">
+            🔄 Chạy lại
+          </button>
         </form>
         <p id="cache-status" class="cache-status hidden" aria-live="polite"></p>
       </header>
+
+      <!-- Cảnh báo dữ liệu cũ (thuật toán chưa được tối ưu) -->
+      <div id="stale-panel" class="stale-warning glass hidden" role="alert" aria-live="polite">
+        <span class="stale-icon">⚠️</span>
+        <div class="stale-body">
+          <strong>Kết quả này có thể từ thuật toán cũ</strong>
+          <span>Thời gian suy nghĩ bất thường cao — thuật toán đã được cải tiến (VCF, iterative deepening, IncrementalEvaluator). Chạy lại để xem kết quả chính xác.</span>
+        </div>
+        <button type="button" class="btn btn-primary btn-sm" id="btn-stale-refresh">
+          Chạy lại ngay
+        </button>
+      </div>
 
       <div id="loading-panel" class="compare-loading glass hidden">
         <div class="spinner"></div>
@@ -118,6 +133,32 @@
             </div>
           </div>
           <ul class="overview-metrics" id="overview-metrics"></ul>
+        </section>
+
+        <!-- Các ưu điểm của Hybrid -->
+        <section class="hybrid-advantages glass hidden" id="hybrid-advantages">
+          <div class="hybrid-adv-header">
+            <span class="hybrid-adv-icon">⚡</span>
+            <h3>Hybrid vượt trội nhờ</h3>
+          </div>
+          <div class="hybrid-adv-grid" id="hybrid-adv-grid">
+            <div class="hybrid-adv-item">
+              <span class="adv-tag">VCF/VCT</span>
+              <p>Tìm thắng ép buộc sâu 8–10 nước trong &lt;1 giây nhờ branching factor 3–5 thay vì 30+</p>
+            </div>
+            <div class="hybrid-adv-item">
+              <span class="adv-tag">Tìm sâu hơn</span>
+              <p>Minimax + DQN reorder → cắt tỉa alpha-beta hiệu quả hơn, đạt depth cao hơn cùng ngân sách thời gian</p>
+            </div>
+            <div class="hybrid-adv-item">
+              <span class="adv-tag">Iterative Deepening</span>
+              <p>Tận dụng toàn bộ ngân sách 6 giây/nước, không lãng phí thời gian còn dư như thuật toán cũ</p>
+            </div>
+            <div class="hybrid-adv-item">
+              <span class="adv-tag">DQN Win%</span>
+              <p>Xác suất thắng từ mạng học sâu hiển thị trên HUD; học online tự cải thiện sau mỗi ván</p>
+            </div>
+          </div>
         </section>
 
         <section class="charts-grid">

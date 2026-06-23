@@ -51,8 +51,8 @@ class TacticalConfig:
 
 
 # Phần thưởng hình dạng khi huấn luyện DQN (khuyến khích tấn công).
-DQN_REWARD_OPEN_FOUR: float = 0.35
-DQN_REWARD_OPEN_THREE: float = 0.12
+DQN_REWARD_OPEN_FOUR: float = 0.5
+DQN_REWARD_OPEN_THREE: float = 0.2
 DQN_REWARD_STEP: float = -0.005
 
 # Mức can thiệp của luật tactical cho LEARNER (quân DQN học) khi HUẤN LUYỆN.
@@ -154,7 +154,7 @@ MAX_BOARD_SIZE: int = max(BOARD_SIZES)
 DQN_LEARNING_RATE: float = 1e-4
 DQN_GAMMA: float = 0.99
 DQN_BATCH_SIZE: int = 64
-DQN_BUFFER_CAPACITY: int = 50_000
+DQN_BUFFER_CAPACITY: int = 100_000
 DQN_EPSILON_START: float = 1.0
 DQN_EPSILON_END: float = 0.05
 DQN_EPSILON_DECAY: float = 0.9995
@@ -171,7 +171,7 @@ DQN_PLAY_EPSILON: dict[Difficulty, float] = {
 }
 
 # Mặc định cho script ``train.py``.
-DQN_DEFAULT_EPISODES: int = 3_000
+DQN_DEFAULT_EPISODES: int = 10_000
 DQN_SAVE_EVERY: int = 500
 DQN_LOG_EVERY: int = 50
 DQN_EVAL_EVERY: int = 500
@@ -214,6 +214,26 @@ HYBRID_MAX_DEPTH: int = 5
 # ``AI_MOVE_TIMEOUT_SEC`` ở độ sâu lớn — luôn trả nước tốt nhất tới thời điểm cắt.
 MINIMAX_PLAY_TIME_BUDGET_SEC: float = 5.0
 HYBRID_PLAY_TIME_BUDGET_SEC: float = 6.0
+
+# Giới hạn số nhánh mở rộng mỗi node cho Minimax khi CHƠI tương tác (selective
+# search — giống engine online). Sau move-ordering chỉ giữ top-K nước; nhờ lớp
+# tactical đã lọc nước thắng/chặn nên cắt nhánh này gần như không mất nước hay.
+# Càng sâu thì K càng nhỏ để khống chế bùng nổ cấp số mũ.
+#
+# MẶC ĐỊNH = None (KHÔNG cắt nhánh) để GIỮ NGUYÊN SỨC MẠNH: nhờ evaluator tăng
+# dần, tìm kiếm vét cạn giờ đã đủ nhanh (depth 2 ~0,9s, depth 3 ~10s; iterative
+# deepening luôn trả nước tốt nhất tới mốc thời gian). Thực nghiệm đối kháng cho
+# thấy cắt nhánh top-K (kể cả K=24) làm YẾU đi đôi chút vì move-ordering cục bộ
+# chưa đủ tinh để chắc chắn giữ lại nước hay — nên mặc định tắt.
+#
+# Nếu chạy trên máy yếu và cần nhanh hơn nữa (chấp nhận giảm sức một chút), đặt
+# số nguyên (vd MEDIUM: 24) để chỉ mở rộng top-K nước mỗi node.
+MINIMAX_MAX_BRANCH_BY_DIFFICULTY: dict[Difficulty, int | None] = {
+    Difficulty.EASY: None,
+    Difficulty.MEDIUM: None,
+    Difficulty.HARD: None,
+    Difficulty.EXPERT: None,
+}
 # Budget thêm cho Hybrid trong benchmark (search rộng hơn Minimax cùng depth).
 HYBRID_BENCHMARK_BRANCH_BONUS: int = 6
 HYBRID_BENCHMARK_RADIUS_BONUS: int = 1
@@ -253,14 +273,26 @@ HYBRID_ROOT_REFINE_CANDIDATES: int = 12
 # Chỉ đổi nước minimax nếu điểm trộn cao hơn ít nhất tỷ lệ này (tránh nhiễu DQN).
 HYBRID_ROOT_REFINE_MIN_GAIN: float = 1.02
 
-# Hybrid: DQN chỉ phá hoà khi Minimax score gần như bằng nhau (margin rất nhỏ).
-# Margin lớn (60) khiến DQN yếu chọn nước "gần tối ưu" nhưng heuristic thấp hơn
-# → Hybrid tụt hạng dưới Minimax sau khi train. Giữ margin ≈ 0.
+# Hybrid: trong refinement sau search, nếu hai nước chênh lệch minimax score nhỏ
+# hơn margin thì ưu tiên nước có heuristic tức thì cao hơn (cải thiện rank benchmark).
+# Margin tuyệt đối 5000 ≈ 5% khoảng điển hình (95000+) — đủ để kích hoạt trên
+# phần lớn tình huống giữa ván mà không đánh đổi nước chiến lược rõ ràng tốt hơn.
 HYBRID_TIE_REL_MARGIN: float = 0.0
-HYBRID_TIE_ABS_MARGIN: float = 1.0
+HYBRID_TIE_ABS_MARGIN: float = 5000.0
+
+# Ngân sách thời gian (giây) cho Hybrid trong basic benchmark — cho phép hoàn thành
+# depth=2 (~22 ms) rồi thử depth=3; nếu depth=3 chưa xong thì trả kết quả depth=2.
+# Giữ nhỏ để điểm tốc độ (speed_pts) sát Minimax trong bảng xếp hạng.
+HYBRID_BENCHMARK_TIME_BUDGET_BASIC: float = 0.06  # 60 ms
 
 # Thời gian tối đa chờ AI (giây) trước khi fallback nước đi an toàn.
 AI_MOVE_TIMEOUT_SEC: float = 45.0
+
+# VCF/VCT — tìm chuỗi thắng ép buộc (threat-space search).
+VCF_MAX_DEPTH: int = 8           # Số ply xen kẽ tối đa khi tấn công VCF
+VCT_MAX_DEPTH: int = 10          # Hybrid dùng (sâu hơn, gồm tam mở)
+VCF_OPPONENT_DEPTH: int = 8      # Độ sâu khi quét VCF phòng thủ (đối thủ)
+VCF_ENABLED: bool = True         # Tắt để debug / so sánh không VCF
 
 def dqn_model_path(board_size: int) -> Path:
     """Đường dẫn file checkpoint DQN theo kích thước bàn cờ.

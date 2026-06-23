@@ -176,11 +176,55 @@ def evaluate_position(env_winner: Player | None, board: Board, for_player: Playe
     return evaluate_board(board, for_player)
 
 
+def _lines_through_cell(
+    board: Board, row: int, col: int, size: int
+) -> tuple[str, str, str, str]:
+    """Trả 4 chuỗi digit của 4 đường (ngang/dọc/2 chéo) đi qua (row, col).
+
+    Đường chéo được bọc biên '3' hai đầu — đồng nhất với ``_extract_lines`` để
+    điểm cục bộ khớp phong cách chấm của heuristic toàn cục.
+    """
+    horiz = "".join(str(int(board[row, c])) for c in range(size))
+    vert = "".join(str(int(board[r, col])) for r in range(size))
+
+    # Chéo xuống-phải qua ô: lùi về đầu đường rồi quét tới cuối.
+    r, c = row, col
+    while r > 0 and c > 0:
+        r -= 1
+        c -= 1
+    chars = ["3"]
+    while r < size and c < size:
+        chars.append(str(int(board[r, c])))
+        r += 1
+        c += 1
+    chars.append("3")
+    diag_dr = "".join(chars)
+
+    # Chéo lên-phải qua ô.
+    r, c = row, col
+    while r < size - 1 and c > 0:
+        r += 1
+        c -= 1
+    chars = ["3"]
+    while r >= 0 and c < size:
+        chars.append(str(int(board[r, c])))
+        r -= 1
+        c += 1
+    chars.append("3")
+    diag_ur = "".join(chars)
+
+    return horiz, vert, diag_dr, diag_ur
+
+
 def move_priority(board: Board, move: tuple[int, int], player: Player) -> float:
     """Ước lượng nhanh chất lượng một nước đi (dùng sắp xếp nước đi).
 
+    Tối ưu: chỉ chấm 4 đường thẳng đi qua ô vừa đặt (ta − đối thủ) thay vì
+    ``board.copy()`` + quét toàn bộ bàn cờ. Đây là proxy cục bộ của Δ điểm
+    heuristic, đủ tốt để xếp hạng nước cho Alpha-Beta và nhanh hơn nhiều bậc.
+
     Args:
-        board: Bàn cờ trước khi đặt (chỉ đọc).
+        board: Bàn cờ trước khi đặt (được khôi phục nguyên trạng sau khi tính).
         move: Nước đi cần xếp hạng.
         player: Người chơi sắp đặt quân.
 
@@ -188,16 +232,41 @@ def move_priority(board: Board, move: tuple[int, int], player: Player) -> float:
         Điểm ưu tiên càng cao càng nên thử trước trong Alpha-Beta.
     """
     row, col = move
-    # Giả lập đặt quân trên bản sao nhỏ (chỉ 1 ô) — tránh clone cả env.
-    temp = board.copy()
-    temp[row, col] = player
-    return evaluate_board(temp, player)
+    opponent = player.opponent
+    size = board.shape[0]
+    old = board[row, col]
+    board[row, col] = player
+    total = 0
+    for raw in _lines_through_cell(board, row, col, size):
+        total += _score_line(_player_line(raw, player, opponent))
+        total -= _score_line(_player_line(raw, opponent, player))
+    board[row, col] = old
+    return float(total)
+
+
+def _wins_with_move(env: CaroEnv, move: Move, player: Player) -> bool:
+    """True nếu ``player`` đặt quân tại ``move`` sẽ thắng ngay (theo luật env).
+
+    Dùng push/pop (O(win_length)) thay vì ``env.clone()`` — không cấp phát bàn
+    cờ mới, vẫn tôn trọng ``double_end_block_rule``.
+    """
+    row, col = move
+    if env.done or env.board[row, col] != Player.EMPTY:
+        return False
+    prev_player = env.current_player
+    env.current_player = player
+    env.push(move)
+    won = env.winner is player
+    env.pop()
+    env.current_player = prev_player
+    return won
+
 
 def find_winning_move(env: CaroEnv, player: Player, radius: int = 2) -> Move | None:
     """Tìm nước đi thắng ngay nếu có (trong các ô ứng viên).
 
     Mô phỏng ``player`` đặt quân (bất kể lượt hiện tại của env) để phát hiện
-    nước thắng tức thì hoặc nước chặn bắt buộc.
+    nước thắng tức thì hoặc nước chặn bắt buộc. Dùng push/pop thay vì clone.
 
     Args:
         env: Môi trường hiện tại.
@@ -207,12 +276,7 @@ def find_winning_move(env: CaroEnv, player: Player, radius: int = 2) -> Move | N
         Nước thắng hoặc None.
     """
     for move in env.candidate_moves(radius=radius):
-        if env.board[move[0], move[1]] != Player.EMPTY:
-            continue
-        trial = env.clone()
-        trial.current_player = player
-        trial.step(move)
-        if trial.winner is player:
+        if _wins_with_move(env, move, player):
             return move
     return None
 
@@ -288,17 +352,19 @@ def find_open_four_move(env: CaroEnv, player: Player, radius: int = 2) -> Move |
     """
     best: Move | None = None
     best_score = float("-inf")
+    board = env.board
+    size = env.size
     for move in env.candidate_moves(radius=radius):
-        if env.board[move[0], move[1]] != Player.EMPTY:
-            continue
-        trial = env.clone()
-        trial.current_player = player
-        trial.step(move)
-        if trial.winner is player:
-            return move
         row, col = move
-        if _is_four_with_open_end(trial.board, row, col, player, trial.size):
-            score = move_priority(env.board, move, player)
+        if board[row, col] != Player.EMPTY:
+            continue
+        if _wins_with_move(env, move, player):
+            return move
+        board[row, col] = player
+        is_four = _is_four_with_open_end(board, row, col, player, size)
+        board[row, col] = Player.EMPTY
+        if is_four:
+            score = move_priority(board, move, player)
             if score > best_score:
                 best_score = score
                 best = move
@@ -318,17 +384,19 @@ def find_open_four_block(env: CaroEnv, player: Player, radius: int = 2) -> Move 
     opponent = player.opponent
     best: Move | None = None
     best_score = float("-inf")
+    board = env.board
+    size = env.size
     for move in env.candidate_moves(radius=radius):
-        if env.board[move[0], move[1]] != Player.EMPTY:
-            continue
-        trial = env.clone()
-        trial.current_player = opponent
-        trial.step(move)
-        if trial.winner is opponent:
-            return move
         row, col = move
-        if _is_four_with_open_end(trial.board, row, col, opponent, trial.size):
-            score = move_priority(env.board, move, player)
+        if board[row, col] != Player.EMPTY:
+            continue
+        if _wins_with_move(env, move, opponent):
+            return move
+        board[row, col] = opponent
+        is_four = _is_four_with_open_end(board, row, col, opponent, size)
+        board[row, col] = Player.EMPTY
+        if is_four:
+            score = move_priority(board, move, player)
             if score > best_score:
                 best_score = score
                 best = move
@@ -373,15 +441,17 @@ def find_open_three_block(env: CaroEnv, player: Player, radius: int = 2) -> Move
     opponent = player.opponent
     best: Move | None = None
     best_score = float("-inf")
+    board = env.board
+    size = env.size
     for move in env.candidate_moves(radius=radius):
-        if env.board[move[0], move[1]] != Player.EMPTY:
-            continue
-        trial = env.clone()
-        trial.current_player = opponent
-        trial.step(move)
         row, col = move
-        if _is_open_three_at(trial.board, row, col, opponent, trial.size):
-            score = move_priority(env.board, move, player)
+        if board[row, col] != Player.EMPTY:
+            continue
+        board[row, col] = opponent
+        is_three = _is_open_three_at(board, row, col, opponent, size)
+        board[row, col] = Player.EMPTY
+        if is_three:
+            score = move_priority(board, move, player)
             if score > best_score:
                 best_score = score
                 best = move

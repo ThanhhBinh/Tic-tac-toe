@@ -4,6 +4,9 @@
 
 from __future__ import annotations
 
+import pytest
+pytest.importorskip("torch")
+
 from ai.dqn_agent import DQNAgent
 from ai.factory import create_agent
 from ai.online_learner import (

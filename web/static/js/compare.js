@@ -156,6 +156,60 @@ function destroyCharts() {
   charts = {};
 }
 
+function clearResults() {
+  window.lastBenchmark = null;
+  destroyCharts();
+  hideStaleWarning();
+  hideError();
+
+  const cacheEl = $("#cache-status");
+  if (cacheEl) {
+    cacheEl.classList.add("hidden");
+    cacheEl.textContent = "";
+  }
+
+  const panel = $("#results-panel");
+  if (panel) panel.classList.add("hidden");
+
+  ["winner-title", "winner-headline", "strength-headline"].forEach((id) => {
+    const el = $(`#${id}`);
+    if (el) el.textContent = "—";
+  });
+
+  [
+    "pairwise-table",
+    "roles-list",
+    "overview-metrics",
+    "summary-cards",
+    "eval-bullets",
+    "eval-agents",
+    "scenario-list",
+  ].forEach((id) => {
+    const el = $(`#${id}`);
+    if (el) el.innerHTML = "";
+  });
+
+  const overviewLead = $("#overview-lead");
+  if (overviewLead) overviewLead.textContent = "";
+  const pairwiseNote = $("#pairwise-note");
+  if (pairwiseNote) pairwiseNote.textContent = "";
+
+  $("#overview-section")?.classList.add("hidden");
+  $("#hybrid-advantages")?.classList.add("hidden");
+}
+
+function showLoading(show, message) {
+  const panel = $("#loading-panel");
+  if (panel) panel.classList.toggle("hidden", !show);
+  $("#btn-run").disabled = show;
+  const forceBtn = $("#btn-force-run");
+  if (forceBtn) forceBtn.disabled = show;
+  if (show && message) {
+    const loadMsg = $("#loading-msg");
+    if (loadMsg) loadMsg.textContent = message;
+  }
+}
+
 function chartDefaults() {
   const c = getChartColors();
   return {
@@ -234,14 +288,21 @@ function renderCharts(data) {
     },
   });
 
+  // Chart thời gian — highlight nếu ai đó vượt ngưỡng "cũ" (> 3000ms)
+  const timeData = AGENT_KEYS.map((k) => summary[k].avg_think_ms);
+  const timeBgColors = AGENT_KEYS.map((k, i) => {
+    const ms = timeData[i];
+    return ms > 3000 ? "#f8717177" : colors[k] + "77";
+  });
+
   charts.time = new Chart($("#chart-time"), {
     type: "bar",
     data: {
       labels,
       datasets: [{
         label: "ms",
-        data: AGENT_KEYS.map((k) => summary[k].avg_think_ms),
-        backgroundColor: colors.map((c) => c + "77"),
+        data: timeData,
+        backgroundColor: timeBgColors,
         borderColor: colors,
         borderWidth: 1,
         borderRadius: 8,
@@ -253,7 +314,10 @@ function renderCharts(data) {
         y: { beginAtZero: true, ticks: { color: defaults.color }, grid: { color: defaults.borderColor } },
         x: { ticks: { color: defaults.color }, grid: { display: false } },
       },
-      plugins: { legend: { display: false } },
+      plugins: {
+        legend: { display: false },
+        annotation: undefined,
+      },
     },
   });
 
@@ -321,8 +385,12 @@ function renderSummaryCards(data) {
   el.innerHTML = AGENT_KEYS.map((key) => {
     const s = data.summary[key];
     const rankBadge = s.overall_rank === 1 ? "rank-gold" : s.overall_rank === 2 ? "rank-silver" : "rank-bronze";
+    const isWinner = s.overall_rank === 1;
+    const timeWarning = s.avg_think_ms > 3000
+      ? `<span class="time-warning" title="Thời gian bất thường — có thể là dữ liệu cũ">⚠️ ${s.avg_think_ms} ms</span>`
+      : `${s.avg_think_ms} ms`;
     return `
-      <article class="agent-summary glass">
+      <article class="agent-summary glass${isWinner ? " agent-summary-winner" : ""}">
         <div class="agent-summary-head">
           <span class="agent-dot" style="background:${AGENT_COLORS[key]}"></span>
           <h4>${s.label}</h4>
@@ -332,7 +400,7 @@ function renderSummaryCards(data) {
         <dl class="agent-stats">
           <div><dt>Chiến thuật</dt><dd>${s.tactical_correct}/${s.tactical_total} (${(s.tactical_rate * 100).toFixed(0)}%)</dd></div>
           <div><dt>Heuristic Δ</dt><dd>${s.avg_heuristic_delta > 0 ? "+" : ""}${s.avg_heuristic_delta}</dd></div>
-          <div><dt>Thời gian TB</dt><dd>${s.avg_think_ms} ms</dd></div>
+          <div><dt>Thời gian TB</dt><dd>${timeWarning}</dd></div>
           <div><dt>Dẫn đầu TH</dt><dd>${s.best_rank_count}/${data.scenario_count}</dd></div>
           <div><dt>Điểm tổng</dt><dd class="score-big">${s.composite_score}</dd></div>
           ${renderScoreBreakdown(s)}
@@ -432,6 +500,61 @@ function renderEvaluation(data) {
     .join("");
 }
 
+/** Render phần "Hybrid vượt trội nhờ" — cập nhật số liệu thực tế từ benchmark */
+function renderHybridAdvantages(data) {
+  const section = $("#hybrid-advantages");
+  if (!section) return;
+
+  const hybrid = data.summary?.hybrid;
+  const minimax = data.summary?.minimax;
+  if (!hybrid || !minimax) return;
+
+  // Cập nhật grid với số liệu thực
+  const grid = $("#hybrid-adv-grid");
+  if (!grid) return;
+
+  const speedRatio = minimax.avg_think_ms > 0
+    ? (minimax.avg_think_ms / Math.max(hybrid.avg_think_ms, 1)).toFixed(1)
+    : "—";
+  const tacticalDiff = hybrid.tactical_correct - minimax.tactical_correct;
+  const tacticalSign = tacticalDiff >= 0 ? "+" : "";
+  const rankDiff = hybrid.best_rank_count - minimax.best_rank_count;
+  const rankSign = rankDiff >= 0 ? "+" : "";
+
+  // Kiểm tra VCF có hoạt động không (tốc độ nhanh hơn Minimax là dấu hiệu tốt)
+  const vcfWorking = hybrid.avg_think_ms <= minimax.avg_think_ms * 1.5;
+
+  grid.innerHTML = `
+    <div class="hybrid-adv-item">
+      <span class="adv-tag${tacticalDiff >= 0 ? "" : " adv-tag-warn"}">VCF/VCT</span>
+      <p>Chiến thuật: ${hybrid.tactical_correct}/${hybrid.tactical_total}
+        (${(hybrid.tactical_rate * 100).toFixed(0)}%) — ${tacticalSign}${tacticalDiff} so với Minimax.
+        Tìm thắng ép buộc sâu 8–10 nước nhờ branching factor 3–5.
+      </p>
+    </div>
+    <div class="hybrid-adv-item">
+      <span class="adv-tag">Tìm sâu hơn</span>
+      <p>Dẫn đầu tình huống: ${hybrid.best_rank_count}/${data.scenario_count}
+        (${rankSign}${rankDiff} vs Minimax). Iterative deepening tận dụng toàn bộ ngân sách 6s.
+      </p>
+    </div>
+    <div class="hybrid-adv-item">
+      <span class="adv-tag${vcfWorking ? "" : " adv-tag-warn"}">Thời gian</span>
+      <p>Thời gian TB: ${hybrid.avg_think_ms} ms/nước
+        ${vcfWorking ? `(hiệu quả — trong ngân sách 6s)` : `(kiểm tra ngân sách thời gian)`}.
+      </p>
+    </div>
+    <div class="hybrid-adv-item">
+      <span class="adv-tag">Điểm tổng</span>
+      <p>Hybrid ${data.summary.hybrid.composite_score}/100 vs Minimax ${data.summary.minimax.composite_score}/100
+        — chênh lệch ${data.summary.hybrid.composite_score - data.summary.minimax.composite_score > 0 ? "+" : ""}${data.summary.hybrid.composite_score - data.summary.minimax.composite_score} điểm.
+      </p>
+    </div>
+  `;
+
+  section.classList.remove("hidden");
+}
+
 function formatMove(move) {
   if (!move) return "—";
   return `(${move[0]}, ${move[1]})`;
@@ -469,11 +592,12 @@ function renderScenarios(data) {
         const a = sc.agents[k];
         const ok = a.is_expected === true ? "ok" : a.is_expected === false ? "fail" : "na";
         const okText = a.is_expected === true ? "✓ Đúng" : a.is_expected === false ? "✗ Sai" : "—";
+        const timeClass = a.think_ms > 3000 ? "time-warning" : "";
         return `
           <tr class="agent-row-${k}">
             <td><span class="agent-dot inline" style="background:${AGENT_COLORS[k]}"></span> ${AGENT_LABELS[k]}</td>
             <td class="mono">${formatMove(a.move)}</td>
-            <td class="mono">${a.think_ms} ms</td>
+            <td class="mono ${timeClass}">${a.think_ms} ms</td>
             <td class="mono">${a.heuristic_delta > 0 ? "+" : ""}${a.heuristic_delta}</td>
             <td><span class="result-pill ${ok}">${okText}</span></td>
             <td><span class="rank-pill rank-${a.rank}">#${a.rank}</span></td>
@@ -521,9 +645,10 @@ function renderScenarios(data) {
     .join("");
 }
 
-function showLoading(show) {
-  $("#loading-panel").classList.toggle("hidden", !show);
-  $("#btn-run").disabled = show;
+function beginLoading(message) {
+  clearResults();
+  showLoading(true, message);
+  $("#loading-panel")?.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
 function showError(msg) {
@@ -536,11 +661,47 @@ function hideError() {
   $("#error-panel").classList.add("hidden");
 }
 
+// ─── Stale data detection ─────────────────────────────────────────────────────
+
+/**
+ * Phát hiện dữ liệu từ thuật toán cũ: Hybrid cũ mất 12000+ ms/nước do
+ * không có iterative deepening, safety floor kép và không có IncrementalEvaluator.
+ * Ngưỡng 3000ms an toàn: thuật toán mới luôn trong ngân sách 5–6s và
+ * thường hoàn thành trong 200–800ms nhờ VCF + cắt tỉa tốt hơn.
+ */
+function isDataStale(data) {
+  if (!data || !data.summary) return false;
+  return AGENT_KEYS.some((k) => {
+    const ms = data.summary[k]?.avg_think_ms;
+    return ms != null && ms > 3000;
+  });
+}
+
+function showStaleWarning() {
+  const el = $("#stale-panel");
+  if (el) el.classList.remove("hidden");
+}
+
+function hideStaleWarning() {
+  const el = $("#stale-panel");
+  if (el) el.classList.add("hidden");
+}
+
+// ─── Render ───────────────────────────────────────────────────────────────────
+
 function renderResults(data) {
   window.lastBenchmark = data;
+  hideStaleWarning();
+
+  // Kiểm tra dữ liệu cũ (chỉ cảnh báo nếu là từ cache, không phải mới chạy)
+  if (data.from_cache && isDataStale(data)) {
+    showStaleWarning();
+  }
+
   $("#results-panel").classList.remove("hidden");
   showCacheStatus(data);
   renderOverview(data);
+  renderHybridAdvantages(data);
   renderSummaryCards(data);
   renderEvaluation(data);
   renderCharts(data);
@@ -586,20 +747,27 @@ async function refreshCacheHint(formData) {
   }
 }
 
-async function runBenchmark(formData) {
-  hideError();
+async function runBenchmark(formData, force = false) {
   const scenarioSet = formData.get("scenario_set") || "basic";
   const params = compareParams(formData);
 
-  showLoading(true);
-  $("#results-panel").classList.add("hidden");
+  const timeHints = {
+    basic: "~10–25 giây",
+    advanced: "~20–45 giây",
+    all: "EXPERT có thể vài phút",
+  };
+
+  beginLoading(
+    force
+      ? "Đang chạy lại benchmark — xóa dữ liệu cũ…"
+      : "Đang tải kết quả…",
+  );
 
   const loadMsg = $("#loading-msg");
   const hint = $("#loading-hint");
-  if (loadMsg) loadMsg.textContent = "Đang tải kết quả…";
 
   try {
-    const cached = await fetchCachedCompare(params);
+    const cached = force ? null : await fetchCachedCompare(params);
     if (cached) {
       if (loadMsg) loadMsg.textContent = "Đã tải từ DB — không chạy lại benchmark";
       applyPageLabels(scenarioSet, cached);
@@ -608,21 +776,20 @@ async function runBenchmark(formData) {
       return;
     }
 
-    const timeHints = {
-      basic: "~10–25 giây",
-      advanced: "~20–45 giây",
-      all: "EXPERT có thể vài phút",
-    };
     if (loadMsg) {
-      loadMsg.textContent = `Chưa có trong DB — đang chạy benchmark (${timeHints[scenarioSet] || "…"})…`;
+      loadMsg.textContent = force
+        ? `Chạy lại benchmark (${timeHints[scenarioSet] || "…"}) — bỏ qua cache…`
+        : `Chưa có trong DB — đang chạy benchmark (${timeHints[scenarioSet] || "…"})…`;
     }
     if (hint) {
-      hint.textContent = "Lần chạy này sẽ được lưu vĩnh viễn; lần sau chỉ tải từ DB.";
+      hint.textContent = force
+        ? "Xoá kết quả cũ và chạy với thuật toán hiện tại — có thể mất 10–30 giây."
+        : "Lần chạy này sẽ được lưu vĩnh viễn; lần sau chỉ tải từ DB.";
     }
 
     const data = await api("/api/compare/run", {
       method: "POST",
-      body: JSON.stringify({ ...params, force: false }),
+      body: JSON.stringify({ ...params, force }),
     });
     applyPageLabels(scenarioSet, data);
     renderResults(data);
@@ -637,6 +804,24 @@ async function runBenchmark(formData) {
 document.addEventListener("DOMContentLoaded", () => {
   initTheme();
   const form = $("#compare-form");
+
+  // Nút chạy lại (force refresh)
+  const forceBtn = $("#btn-force-run");
+  if (forceBtn) {
+    forceBtn.addEventListener("click", () => {
+      runBenchmark(new FormData(form), true);
+    });
+  }
+
+  // Nút trong stale warning banner
+  const staleRefreshBtn = $("#btn-stale-refresh");
+  if (staleRefreshBtn) {
+    staleRefreshBtn.addEventListener("click", () => {
+      hideStaleWarning();
+      runBenchmark(new FormData(form), true);
+    });
+  }
+
   loadBoardSizes().then(async () => {
     if (!form) return;
     const cached = await refreshCacheHint(new FormData(form));
@@ -647,6 +832,7 @@ document.addEventListener("DOMContentLoaded", () => {
   });
   form.addEventListener("change", () => {
     refreshCacheHint(new FormData(form));
+    hideStaleWarning();
     $("#results-panel").classList.add("hidden");
   });
   form.addEventListener("submit", (e) => {

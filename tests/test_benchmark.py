@@ -9,6 +9,14 @@ import pytest
 from ai.benchmark import AGENT_KEYS, BENCHMARK_SCENARIOS, run_benchmark
 from config import BOARD_SIZES, Difficulty, create_caro_env, win_length_for_board
 
+try:
+    import torch as _torch
+    _HAS_TORCH = True
+except ImportError:
+    _HAS_TORCH = False
+
+_skip_no_torch = pytest.mark.skipif(not _HAS_TORCH, reason="torch not installed")
+
 
 def test_board_sizes_config() -> None:
     assert BOARD_SIZES == (3, 5, 7, 10, 15)
@@ -30,6 +38,7 @@ def test_benchmark_co_10_th() -> None:
     assert len(BENCHMARK_SCENARIOS) == 10
 
 
+@_skip_no_torch
 @pytest.mark.parametrize("board_size", [3, 5, 7, 10, 15])
 def test_run_benchmark_all_board_sizes(board_size: int) -> None:
     """Benchmark không crash trên mọi kích thước bàn."""
@@ -39,6 +48,7 @@ def test_run_benchmark_all_board_sizes(board_size: int) -> None:
     assert set(result["summary"].keys()) == set(AGENT_KEYS)
 
 
+@_skip_no_torch
 def test_run_benchmark_structure() -> None:
     result = run_benchmark(difficulty=Difficulty.EASY, board_size=10)
     assert len(result["scenarios"]) == 10

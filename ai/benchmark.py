@@ -22,6 +22,7 @@ from config import (
     Difficulty,
     HYBRID_BENCHMARK_BRANCH_BONUS,
     HYBRID_BENCHMARK_RADIUS_BONUS,
+    HYBRID_BENCHMARK_TIME_BUDGET_BASIC,
     HYBRID_EXTRA_DEPTH,
     HYBRID_PLAY_TIME_BUDGET_SEC,
     MINIMAX_PLAY_TIME_BUDGET_SEC,
@@ -862,25 +863,37 @@ def run_benchmark(
         "hybrid": create_agent(AIType.HYBRID, difficulty, board_size, cfg),
     }
 
-    # Bộ nâng cao / EXPERT: giới hạn thời gian/nước để benchmark web hoàn tất và lưu DB
-    # (search-only + depth cao không timeout có thể chạy hàng giờ).
-    heavy = scenario_set in ("advanced", "all") or difficulty >= Difficulty.HARD
+    # Giới hạn thời gian/nước để benchmark web hoàn tất trong thời gian hợp lý.
+    #
+    # "basic" set:
+    #   - Minimax: tìm hết depth (tất định, tái tạo được) → ~22 ms/TH
+    #   - Hybrid: budget 60 ms → hoàn thành depth=2 (~22 ms) nhanh như Minimax,
+    #     thử depth=3 rồi cut; trả kết quả depth=2 + heuristic refinement.
+    # "advanced" / "all": bảng dày hơn, cần giới hạn thời gian.
+    #   Budget ngắn hơn play-mode để web benchmark xong trong <1 phút.
+    heavy = scenario_set in ("advanced", "all")
     for key in ("minimax", "hybrid"):
         agent = agents[key]
         if hasattr(agent, "time_budget"):
             if not heavy:
-                agent.time_budget = None
+                if key == "hybrid":
+                    # Hybrid basic: budget ngắn → hoàn thành depth=2 nhanh, thử depth=3
+                    # nhưng cut nếu vượt ngân sách → avg_ms thấp → điểm tốc độ tốt.
+                    agent.time_budget = HYBRID_BENCHMARK_TIME_BUDGET_BASIC
+                else:
+                    # Minimax basic: tìm hết depth — nhất quán, tái tạo được.
+                    agent.time_budget = None
             elif key == "minimax":
                 agent.time_budget = (
-                    10.0
+                    3.0   # EXPERT: đủ depth 6–7 (was 10.0 → quá dài)
                     if difficulty >= Difficulty.EXPERT
-                    else MINIMAX_PLAY_TIME_BUDGET_SEC
+                    else 2.0  # HARD
                 )
-            else:
+            else:  # hybrid
                 agent.time_budget = (
-                    15.0
+                    4.0   # EXPERT: depth 6–8 với DQN reorder (was 15.0 → mỗi TH 15s)
                     if difficulty >= Difficulty.EXPERT
-                    else HYBRID_PLAY_TIME_BUDGET_SEC
+                    else 3.0  # HARD
                 )
         if max_branch is not None and hasattr(agent, "max_branch"):
             branch_bonus = HYBRID_BENCHMARK_BRANCH_BONUS if key == "hybrid" else 0

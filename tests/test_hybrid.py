@@ -4,6 +4,9 @@
 
 from __future__ import annotations
 
+import pytest
+pytest.importorskip("torch")
+
 from ai.factory import create_agent
 from ai.heuristic import evaluate_position
 from ai.hybrid_agent import HybridAgent

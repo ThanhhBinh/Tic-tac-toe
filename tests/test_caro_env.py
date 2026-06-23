@@ -195,6 +195,15 @@ def _place_stones(env: CaroEnv, stones: dict[tuple[int, int], Player]) -> None:
     env._move_count = len(stones)
 
 
+def test_ban_3x3_hang_3_van_thang() -> None:
+    """Bàn 3×3 — đủ 3 quân liên tiếp vẫn thắng dù luật chặn 2 đầu bật."""
+    env = CaroEnv(size=3, double_end_block_rule=True)
+    _play(env, [(0, 1), (0, 2), (1, 0), (1, 1), (1, 2), (2, 0)])
+    assert env.done
+    assert env.winner is Player.O
+    assert len(env.winning_line) == 3
+
+
 def test_chan_2_dau_khong_thang() -> None:
     """OXXXXXO — đúng 5 quân bị chặn hai đầu, luật bật → không thắng."""
     env = CaroEnv(size=10, double_end_block_rule=True)

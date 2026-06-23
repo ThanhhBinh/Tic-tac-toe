@@ -35,7 +35,7 @@ def test_web_session_pva_move_undo() -> None:
 
 def test_web_session_to_dict_keys() -> None:
     """API serialize đủ trường cho frontend."""
-    session = GameSession(SessionSettings(board_size=10))
+    session = GameSession(SessionSettings(ai_type=AIType.MINIMAX, board_size=10))
     data = session.to_dict()
     for key in (
         "session_id", "board", "board_size", "current_player",

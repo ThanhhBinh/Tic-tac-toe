@@ -9,6 +9,9 @@ import os
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 
+import pytest
+pytest.importorskip("pygame")
+
 from config import AIType, Difficulty, GameMode, Player  # noqa: E402
 from core.caro_env import CaroEnv  # noqa: E402
 from ui.app import SCREEN_GAME, App  # noqa: E402

@@ -11,8 +11,13 @@ from pathlib import Path
 from typing import Literal
 
 from ai.benchmark import BENCHMARK_SCENARIOS, _make_env, _run_agent_on_scenario
-from ai.dqn_agent import DQNAgent
-from ai.dqn_trainer import DQNTrainer
+
+try:
+    from ai.dqn_agent import DQNAgent
+    from ai.dqn_trainer import DQNTrainer
+except ModuleNotFoundError:
+    DQNAgent = None  # type: ignore[assignment,misc]
+    DQNTrainer = None  # type: ignore[assignment,misc]
 from ai.learning_inspector import _dqn_greedy_move, _env_from_transition
 from ai.replay_buffer import Transition
 from config import (

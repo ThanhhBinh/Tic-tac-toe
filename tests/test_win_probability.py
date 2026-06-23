@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from config import Player
 from core.caro_env import CaroEnv
 from ai.win_probability import estimate_win_probability
@@ -41,6 +43,7 @@ def test_minimax_co_win_probability() -> None:
 
 def test_web_session_co_win_prob() -> None:
     """API web trả win_probability khi chưa train DQN."""
+    pytest.importorskip("torch")
     from config import AIType, Difficulty, GameMode
     from web.session import GameSession, SessionSettings
 

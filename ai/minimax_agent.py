@@ -19,16 +19,25 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 
-from config import Difficulty, Player, TacticalConfig
+from config import (
+    Difficulty,
+    Player,
+    TacticalConfig,
+    VCF_ENABLED,
+    VCF_MAX_DEPTH,
+    VCF_OPPONENT_DEPTH,
+)
 from core.caro_env import CaroEnv
 from core.constants import Move
 
 from ai.base_agent import Agent
 from ai.heuristic import (
+    evaluate_board,
     evaluate_position,
     find_tactical_move,
     move_priority,
 )
+from ai.incremental_eval import IncrementalEvaluator
 
 
 # Loại cận của giá trị lưu trong transposition table.
@@ -38,6 +47,18 @@ _TT_UPPER = 2   # Cận trên (node fail-low — giá trị thật ≤ score).
 
 # Điểm coi như "thắng/thua chắc chắn" — gặp giá trị này có thể dừng sớm.
 _WIN_THRESHOLD = 10.0**8
+
+
+def _has_local_threats(env: CaroEnv, player: Player, radius: int = 3) -> bool:
+    """Trả True nếu player có ít nhất 2 quân trong radius của nhau."""
+    positions = list(zip(*env.board.__eq__(int(player)).nonzero()))
+    if len(positions) < 2:
+        return False
+    for i, (r1, c1) in enumerate(positions):
+        for r2, c2 in positions[i + 1 :]:
+            if abs(r1 - r2) <= radius and abs(c1 - c2) <= radius:
+                return True
+    return False
 
 
 class _SearchTimeout(Exception):
@@ -85,6 +106,8 @@ class MinimaxAgent(Agent):
         self._tt: dict[tuple[bytes, int, int, int], _TTEntry] = {}
         # Killer moves theo độ sâu còn lại — nước gây cắt tỉa beta, thử sớm lần sau.
         self._killers: dict[int, list[Move]] = {}
+        # Evaluator tăng dần — khởi tạo trong get_move, dùng xuyên suốt search.
+        self._evaluator: IncrementalEvaluator | None = None
         self.name = f"Minimax (depth={self.depth})"
 
     def get_move(self, env: CaroEnv) -> Move:
@@ -125,8 +148,52 @@ class MinimaxAgent(Agent):
             else None
         )
 
+        if not getattr(self, "search_only", False) and VCF_ENABLED:
+            from ai.vcf import vcf_search
+
+            vcf_deadline = (
+                time.perf_counter() + min(1.0, self.time_budget * 0.2)
+                if self.time_budget is not None
+                else None
+            )
+            vcf = vcf_search(
+                env,
+                player,
+                max_depth=VCF_MAX_DEPTH,
+                deadline=vcf_deadline,
+                radius=self.candidate_radius,
+            )
+            if vcf:
+                return vcf[0]
+
+            if _has_local_threats(env, player.opponent, radius=3):
+                opp_vcf_deadline = (
+                    time.perf_counter() + min(0.5, self.time_budget * 0.1)
+                    if self.time_budget is not None
+                    else None
+                )
+                opponent_vcf = vcf_search(
+                    env,
+                    player.opponent,
+                    max_depth=VCF_OPPONENT_DEPTH,
+                    deadline=opp_vcf_deadline,
+                    radius=self.candidate_radius,
+                )
+                if opponent_vcf:
+                    block = opponent_vcf[0]
+                    if env.is_legal(block):
+                        return block
+
+        # Evaluator tăng dần: chỉ tính lại 4 đường qua ô vừa đặt, không quét toàn bàn.
+        self._evaluator = IncrementalEvaluator(env.board)
+
+        # Time-based deepening: khi có ngân sách thời gian, tiếp tục đào sâu cho
+        # đến khi hết giờ thay vì dừng ở depth cố định. Khi không có budget (test/
+        # bench tất định), dùng depth cố định để kết quả có thể tái tạo.
+        max_depth = self.depth if self.time_budget is None else 15
+
         best_move: Move = fallback[0]
-        for current_depth in range(1, self.depth + 1):
+        for current_depth in range(1, max_depth + 1):
             try:
                 value, move = self._alpha_beta(
                     env=env,
@@ -266,10 +333,13 @@ class MinimaxAgent(Agent):
 
         best_move: Move | None = None
 
+        ev = self._evaluator
         if maximizing:
             value = float("-inf")
             for move in moves:
                 env.push(move)
+                if ev is not None:
+                    ev.touch(move)
                 try:
                     if env.done:
                         child_score = self._evaluate_leaf(env, ai_player)
@@ -279,6 +349,8 @@ class MinimaxAgent(Agent):
                         )
                 finally:
                     env.pop()
+                    if ev is not None:
+                        ev.touch(move)
 
                 if child_score > value:
                     value = child_score
@@ -291,6 +363,8 @@ class MinimaxAgent(Agent):
             value = float("inf")
             for move in moves:
                 env.push(move)
+                if ev is not None:
+                    ev.touch(move)
                 try:
                     if env.done:
                         child_score = self._evaluate_leaf(env, ai_player)
@@ -300,6 +374,8 @@ class MinimaxAgent(Agent):
                         )
                 finally:
                     env.pop()
+                    if ev is not None:
+                        ev.touch(move)
 
                 if child_score < value:
                     value = child_score
@@ -323,8 +399,8 @@ class MinimaxAgent(Agent):
     def _evaluate_leaf(self, env: CaroEnv, ai_player: Player) -> float:
         """Lượng giá node lá (depth=0 hoặc kết thúc).
 
-        Mặc định dùng heuristic pattern-based. ``HybridAgent`` ghi đè để dùng
-        Q-value từ DQN tại node lá.
+        Dùng IncrementalEvaluator nếu có (cực nhanh — chỉ đọc điểm cache),
+        ngược lại fallback sang evaluate_board (quét toàn bàn).
 
         Args:
             env: Trạng thái bàn cờ hiện tại.
@@ -333,7 +409,13 @@ class MinimaxAgent(Agent):
         Returns:
             Điểm số float (cao = có lợi cho ``ai_player``).
         """
-        return evaluate_position(env.winner, env.board, ai_player)
+        if env.winner is ai_player:
+            return 10.0 ** 9
+        if env.winner is ai_player.opponent:
+            return -(10.0 ** 9)
+        if self._evaluator is not None:
+            return self._evaluator.value(ai_player)
+        return evaluate_board(env.board, ai_player)
 
     def get_win_probability(
         self, env: CaroEnv, for_player: Player | None = None

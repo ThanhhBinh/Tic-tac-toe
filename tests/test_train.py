@@ -4,6 +4,9 @@
 
 from __future__ import annotations
 
+import pytest
+pytest.importorskip("torch")
+
 from argparse import Namespace
 from pathlib import Path
 

@@ -48,7 +48,7 @@ class CaroEnv:
                 bàn ≥7 dùng luật chuẩn 5). Nhờ vậy mọi nơi tạo env — kể cả
                 huấn luyện / đánh giá — đều đúng luật cho bàn nhỏ.
             double_end_block_rule: Nếu True, đúng ``win_length`` quân liên tiếp
-                bị chặn hai đầu bởi đối phương (hoặc biên bàn) không tính thắng.
+                bị chặn hai đầu bởi quân đối phương không tính thắng.
 
         Raises:
             ValueError: Nếu size nhỏ hơn win_length.
@@ -250,10 +250,10 @@ class CaroEnv:
         self.winning_line = list(record["winning_line"])  # type: ignore[arg-type]
         self._move_count = int(record["move_count"])  # type: ignore[arg-type]
 
-    def _is_cell_blocked_for_player(self, row: int, col: int, player: Player) -> bool:
-        """True nếu ô ngoài biên hoặc bị quân đối phương chiếm (không mở)."""
+    def _is_end_blocked_by_opponent(self, row: int, col: int, player: Player) -> bool:
+        """True nếu ô ngay ngoài đầu đường thắng bị quân đối phương chiếm."""
         if not self.in_bounds(row, col):
-            return True
+            return False
         return self.board[row, col] == player.opponent
 
     def _check_win_from(self, row: int, col: int, player: Player) -> bool:
@@ -263,8 +263,8 @@ class CaroEnv:
         phía. Nếu tổng >= win_length thì thắng và lưu lại ``winning_line``.
 
         Khi bật ``double_end_block_rule``: đúng ``win_length`` quân liên tiếp
-        chỉ thắng nếu ít nhất một đầu còn mở (ô trống). Hai đầu đều bị đối
-        phương hoặc biên bàn chặn thì không tính thắng.
+        chỉ thắng nếu ít nhất một đầu còn mở (ô trống hoặc biên bàn). Hai
+        đầu đều bị quân đối phương chặn thì không tính thắng.
 
         Args:
             row: Hàng của quân vừa đặt.
@@ -300,10 +300,10 @@ class CaroEnv:
             ):
                 first_r, first_c = line[0]
                 last_r, last_c = line[-1]
-                before_blocked = self._is_cell_blocked_for_player(
+                before_blocked = self._is_end_blocked_by_opponent(
                     first_r - dr, first_c - dc, player
                 )
-                after_blocked = self._is_cell_blocked_for_player(
+                after_blocked = self._is_end_blocked_by_opponent(
                     last_r + dr, last_c + dc, player
                 )
                 if before_blocked and after_blocked:

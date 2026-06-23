@@ -4,6 +4,9 @@
 
 from __future__ import annotations
 
+import pytest
+pytest.importorskip("torch")
+
 from collections import deque
 
 from ai.board_encoder import encode_board

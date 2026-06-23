@@ -233,23 +233,28 @@ def find_open_three_attack(env: CaroEnv, player: Player, radius: int = 2) -> Mov
     Returns:
         Nước tấn công tốt nhất hoặc None.
     """
-    from ai.heuristic import move_priority
+    from ai.heuristic import _wins_with_move, move_priority
 
     best: Move | None = None
     best_score = float("-inf")
+    board = env.board
+    size = env.size
     for move in env.candidate_moves(radius=radius):
-        if env.board[move[0], move[1]] != Player.EMPTY:
-            continue
-        trial = env.clone()
-        trial.current_player = player
-        trial.step(move)
         row, col = move
-        if trial.winner is player:
-            return move
-        if not _is_open_three_at(trial.board, row, col, player, trial.size):
+        if board[row, col] != Player.EMPTY:
             continue
-        score = move_priority(env.board, move, player)
-        if _is_open_three_both_ends(trial.board, row, col, player, trial.size):
+        if _wins_with_move(env, move, player):
+            return move
+        board[row, col] = player
+        is_three = _is_open_three_at(board, row, col, player, size)
+        both_ends = is_three and _is_open_three_both_ends(
+            board, row, col, player, size
+        )
+        board[row, col] = Player.EMPTY
+        if not is_three:
+            continue
+        score = move_priority(board, move, player)
+        if both_ends:
             score += 8000.0
         if score > best_score:
             best_score = score
@@ -270,27 +275,27 @@ def find_open_three_block_double_end(
     Returns:
         Nước chặn hoặc None.
     """
-    from ai.heuristic import move_priority
+    from ai.heuristic import _wins_with_move, move_priority
 
     opponent = player.opponent
     best: Move | None = None
     best_score = float("-inf")
+    board = env.board
+    size = env.size
     for move in env.candidate_moves(radius=radius):
-        if env.board[move[0], move[1]] != Player.EMPTY:
-            continue
-        trial = env.clone()
-        trial.current_player = opponent
-        trial.step(move)
         row, col = move
-        if trial.winner is opponent:
+        if board[row, col] != Player.EMPTY:
+            continue
+        if _wins_with_move(env, move, opponent):
             return move
-        threat = (
-            _is_four_with_open_end(trial.board, row, col, opponent, trial.size)
-            or _is_open_three_both_ends(trial.board, row, col, opponent, trial.size)
-        )
+        board[row, col] = opponent
+        threat = _is_four_with_open_end(
+            board, row, col, opponent, size
+        ) or _is_open_three_both_ends(board, row, col, opponent, size)
+        board[row, col] = Player.EMPTY
         if not threat:
             continue
-        score = move_priority(env.board, move, player)
+        score = move_priority(board, move, player)
         if score > best_score:
             best_score = score
             best = move

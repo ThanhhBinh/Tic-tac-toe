@@ -4,8 +4,11 @@
 
 from __future__ import annotations
 
+import pytest
+
+torch = pytest.importorskip("torch")
+
 import numpy as np
-import torch
 
 from config import Difficulty, Player
 from core.caro_env import CaroEnv

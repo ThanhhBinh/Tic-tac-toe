@@ -14,7 +14,11 @@ import numpy as np
 
 from ai.board_encoder import action_to_move, encode_board, legal_action_mask
 from ai.benchmark import BENCHMARK_SCENARIOS, _make_env, _run_agent_on_scenario
-from ai.dqn_agent import DQNAgent
+
+try:
+    from ai.dqn_agent import DQNAgent
+except ModuleNotFoundError:
+    DQNAgent = None  # type: ignore[assignment,misc]
 from ai.replay_buffer import Transition
 from config import (
     DQN_BUFFER_CAPACITY,
