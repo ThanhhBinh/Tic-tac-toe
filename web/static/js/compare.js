@@ -40,6 +40,48 @@ function cacheQueryString(params) {
   return q.toString();
 }
 
+const SCENARIO_SET_LABELS = {
+  basic: "Tiêu chuẩn",
+  advanced: "Nâng cao",
+  all: "Tất cả",
+};
+
+function formatCacheEntry(e) {
+  const set = SCENARIO_SET_LABELS[e.scenario_set] || e.scenario_set;
+  return `${set} · ${e.difficulty} · ${e.board_size}×${e.board_size}`;
+}
+
+function paramsMatchCache(params, entry) {
+  return (
+    params.scenario_set === entry.scenario_set
+    && params.difficulty.toUpperCase() === String(entry.difficulty).toUpperCase()
+    && params.board_size === entry.board_size
+  );
+}
+
+async function fetchCachedList() {
+  const res = await fetch("/api/compare/cached");
+  if (!res.ok) return { count: 0, entries: [] };
+  return res.json();
+}
+
+function showDbHint(params, cachedList, hasCurrent) {
+  const el = $("#cache-status");
+  if (!el) return;
+  if (hasCurrent) return; // showCacheStatus handles loaded result
+  const entries = cachedList?.entries || [];
+  if (!entries.length) {
+    el.textContent = "DB trống — lần chạy đầu sẽ được lưu vĩnh viễn.";
+    el.classList.remove("hidden");
+    return;
+  }
+  const labels = entries.map(formatCacheEntry).join(" · ");
+  const current = `${SCENARIO_SET_LABELS[params.scenario_set] || params.scenario_set} · ${params.difficulty} · ${params.board_size}×${params.board_size}`;
+  el.textContent =
+    `Cấu hình hiện tại (${current}) chưa có trong DB. Đã lưu: ${labels}`;
+  el.classList.remove("hidden");
+}
+
 function showCacheStatus(data) {
   const el = $("#cache-status");
   if (!el) return;
@@ -529,8 +571,14 @@ function applyPageLabels(scenarioSet, data) {
 async function refreshCacheHint(formData) {
   const params = compareParams(formData);
   try {
-    const cached = await fetchCachedCompare(params);
+    const [cached, cachedList] = await Promise.all([
+      fetchCachedCompare(params),
+      fetchCachedList(),
+    ]);
     updateRunButton(Boolean(cached));
+    if (!cached) {
+      showDbHint(params, cachedList, false);
+    }
     return cached;
   } catch {
     updateRunButton(false);
@@ -600,7 +648,6 @@ document.addEventListener("DOMContentLoaded", () => {
   form.addEventListener("change", () => {
     refreshCacheHint(new FormData(form));
     $("#results-panel").classList.add("hidden");
-    showCacheStatus(null);
   });
   form.addEventListener("submit", (e) => {
     e.preventDefault();

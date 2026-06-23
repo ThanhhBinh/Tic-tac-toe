@@ -129,3 +129,32 @@ class BenchmarkCache:
                 "SELECT cache_key FROM benchmark_runs ORDER BY created_at DESC"
             ).fetchall()
         return [str(r["cache_key"]) for r in rows]
+
+    def list_entries(self) -> list[dict[str, Any]]:
+        """Danh sách cấu hình đã lưu (metadata, không trả full scenarios)."""
+        with self._lock, self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT cache_key, scenario_set, difficulty, board_size,
+                       created_at, run_elapsed_ms, result_json
+                FROM benchmark_runs
+                ORDER BY created_at DESC
+                """
+            ).fetchall()
+        entries: list[dict[str, Any]] = []
+        for row in rows:
+            data = json.loads(row["result_json"])
+            winner = data.get("winner") or {}
+            entries.append(
+                {
+                    "cache_key": row["cache_key"],
+                    "scenario_set": row["scenario_set"],
+                    "difficulty": row["difficulty"],
+                    "board_size": row["board_size"],
+                    "created_at": row["created_at"],
+                    "run_elapsed_ms": row["run_elapsed_ms"],
+                    "scenario_count": data.get("scenario_count"),
+                    "winner_label": winner.get("label"),
+                }
+            )
+        return entries

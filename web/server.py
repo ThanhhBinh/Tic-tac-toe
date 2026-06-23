@@ -214,6 +214,13 @@ def _compare_cache_key(body: CompareRequest) -> str:
     )
 
 
+@app.get("/api/compare/cached")
+async def list_compare_cached() -> dict[str, Any]:
+    """Liệt kê các cấu hình benchmark đã lưu trong DB."""
+    entries = benchmark_cache.list_entries()
+    return {"count": len(entries), "entries": entries}
+
+
 @app.get("/api/compare/result")
 async def get_compare_result(
     scenario_set: str = "basic",
